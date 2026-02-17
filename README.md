@@ -41,6 +41,29 @@ CSV file with site parameters:
 ### Output
 Per-site 8760 hourly production timeseries (kWh).
 
+## Testing
+
+Run tests with coverage:
+```bash
+pytest tests/ -v --cov=src
+```
+
+Run tests for specific module:
+```bash
+pytest tests/test_config.py -v
+```
+
+Generate HTML coverage report:
+```bash
+pytest tests/ --cov=src --cov-report=html
+open htmlcov/index.html
+```
+
+### Test Organization
+- `tests/conftest.py`: Shared pytest fixtures
+- `tests/fixtures/`: Sample CSV files for testing
+- `tests/test_*.py`: Test modules mirroring src/ structure
+
 ## Planned Milestones
 
 1. **Core Infrastructure** - Config validation, logging, error handling
