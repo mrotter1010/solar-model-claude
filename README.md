@@ -1,2 +1,50 @@
-# solar-model-claude
-Creating a solar production modeling system with Claude Code.
+# Solar Production Model
+
+Python-based solar production modeling tool using NREL's PySAM detailed photovoltaic model for utility-scale solar projects.
+
+## Architecture Overview
+
+```
+CSV Input → Climate Data Pull (NSRDB) → PySAM Execution → 8760 Hourly Timeseries Output
+```
+
+1. **CSV Input**: Site parameters including location (lat/lon), system design, panel/inverter models, and loss assumptions
+2. **Climate Data Pull**: Fetches TMY/historical weather data from NREL's National Solar Radiation Database (NSRDB) API
+3. **PySAM Execution**: Runs NREL's System Advisor Model detailed PV simulation
+4. **Output**: Per-site 8760 hourly production timeseries
+
+## Setup
+
+### Prerequisites
+- [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/)
+- Python 3.12.4
+
+### Installation
+
+```bash
+# Create conda environment
+conda env create -f environment.yml
+
+# Activate environment
+conda activate solar-model
+```
+
+## Usage
+
+### Input
+CSV file with site parameters:
+- Location (latitude, longitude)
+- System design (capacity, tilt, azimuth, GCR)
+- Panel and inverter model specifications
+- Loss assumptions (soiling, shading, wiring, etc.)
+
+### Output
+Per-site 8760 hourly production timeseries (kWh).
+
+## Planned Milestones
+
+1. **Core Infrastructure** - Config validation, logging, error handling
+2. **Climate Data Integration** - NSRDB API client for weather data retrieval
+3. **PySAM Model Execution** - Detailed PV model configuration and simulation
+4. **Output Processing** - 8760 timeseries generation, summary metrics
+5. **Parallelization & Optimization** - Multi-site concurrent processing
