@@ -98,6 +98,15 @@ class SiteConfig(BaseModel):
         return self.tilt if self.racking == "tracker" else None
 
     @property
+    def availability_for_pysam(self) -> float:
+        """Convert unavailability % from CSV to availability % for PySAM.
+
+        The CSV "Availability (%)" column represents downtime/unavailability,
+        but PySAM expects availability (uptime). This inverts the value.
+        """
+        return 100 - self.availability_percent
+
+    @property
     def location(self) -> tuple[float, float]:
         """Return (latitude, longitude) tuple."""
         return (self.latitude, self.longitude)
