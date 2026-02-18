@@ -95,6 +95,18 @@ def test_case_insensitive_module_orientation(sample_valid_csv: Path) -> None:
 # --- Property Conversions ---
 
 
+def test_rotation_limit(sample_valid_csv: Path) -> None:
+    """Test that rotation_limit returns tilt for trackers, None for fixed."""
+    configs = load_config(sample_valid_csv)
+
+    # Tracker sites return tilt as rotation limit
+    assert configs[0].rotation_limit == 60  # tracker, tilt=60
+    assert configs[2].rotation_limit == 60  # tracker, tilt=60
+
+    # Fixed site returns None
+    assert configs[1].rotation_limit is None  # fixed
+
+
 def test_tracking_mode_conversion(sample_valid_csv: Path) -> None:
     """Test that racking converts to correct tracking_mode integer."""
     configs = load_config(sample_valid_csv)

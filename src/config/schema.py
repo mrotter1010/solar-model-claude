@@ -28,7 +28,12 @@ class SiteConfig(BaseModel):
 
     # System Design
     racking: str
-    tilt: float = Field(ge=0, le=90)
+    tilt: float = Field(
+        ge=0,
+        le=90,
+        description="For fixed racking: static tilt angle in degrees. "
+        "For tracker racking: rotation limit (±degrees from horizontal).",
+    )
     azimuth: float = Field(ge=0, le=360)
     module_orientation: str
     number_of_modules: int = Field(ge=1, le=2)
@@ -81,6 +86,16 @@ class SiteConfig(BaseModel):
     def tracking_mode(self) -> int:
         """Convert racking string to PySAM tracking mode integer."""
         return 0 if self.racking == "fixed" else 1
+
+    @property
+    def rotation_limit(self) -> float | None:
+        """Return the tracker rotation limit in degrees, or None for fixed racking.
+
+        For tracker systems, the tilt field represents the maximum rotation
+        angle (±degrees from horizontal). For fixed systems, rotation limit
+        is not applicable.
+        """
+        return self.tilt if self.racking == "tracker" else None
 
     @property
     def location(self) -> tuple[float, float]:

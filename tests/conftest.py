@@ -61,7 +61,7 @@ def sample_valid_csv(tmp_path: Path) -> Path:
         "AC Installed (MW)": [10, 10, 16],
         "AC POI (MW) ": [10, 10, 16],  # Note: trailing space in column name
         "Racking": ["tracker", "FIXED", "Tracker"],  # Test case insensitivity
-        "Tilt": [0, 25, 0],
+        "Tilt": [60, 25, 60],
         "Azimuth": [180, 180, 180],
         "Module Orientation": ["portrait", "PORTRAIT", "Landscape"],
         "Number of Modules": [2, 2, 1],
