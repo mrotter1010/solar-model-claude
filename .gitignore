@@ -36,7 +36,8 @@ env/
 
 # Project specific
 data/
-outputs/
+/outputs/
+!src/outputs/
 .env
 *.log
 
