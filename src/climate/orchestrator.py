@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.climate.cache_manager import CacheManager
 from src.climate.nsrdb_client import NSRDBClient
+from src.climate.precipitation_client import PrecipitationClient
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import get_unique_locations
 from src.config.schema import SiteConfig
@@ -22,6 +23,7 @@ class ClimateOrchestrator:
         nsrdb_client: Client for NSRDB API calls.
         cache_manager: Manager for weather data file caching.
         formatter: Formatter for converting NSRDB data to PySAM format.
+        precipitation_client: Optional client for NCEI precipitation data.
     """
 
     def __init__(
@@ -29,10 +31,12 @@ class ClimateOrchestrator:
         nsrdb_client: NSRDBClient,
         cache_manager: CacheManager,
         formatter: WeatherFormatter,
+        precipitation_client: PrecipitationClient | None = None,
     ) -> None:
         self.nsrdb_client = nsrdb_client
         self.cache_manager = cache_manager
         self.formatter = formatter
+        self.precipitation_client = precipitation_client
 
     def fetch_climate_data(
         self,
@@ -84,8 +88,22 @@ class ClimateOrchestrator:
             # Save raw CSV to cache
             cache_path = self.cache_manager.save_weather_data(lat, lon, raw_csv)
 
+            # Fetch precipitation data if client is available
+            precipitation = None
+            if self.precipitation_client is not None:
+                precipitation = self.precipitation_client.fetch_precipitation(
+                    lat, lon, year
+                )
+                if precipitation is None:
+                    logger.warning(
+                        f"Precipitation unavailable for ({lat}, {lon}), "
+                        f"using zeros"
+                    )
+
             # Format and save PySAM-compatible file alongside cache
-            df = self.formatter.format_for_pysam(raw_csv, lat, lon)
+            df = self.formatter.format_for_pysam(
+                raw_csv, lat, lon, precipitation=precipitation
+            )
             pysam_path = cache_path.with_suffix(".pysam.csv")
             self.formatter.save_to_csv(df, pysam_path, lat, lon)
 

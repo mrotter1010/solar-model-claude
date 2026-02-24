@@ -11,6 +11,7 @@ from src.climate.cache_manager import CacheManager
 from src.climate.config import ClimateConfig
 from src.climate.nsrdb_client import NSRDBClient
 from src.climate.orchestrator import ClimateOrchestrator
+from src.climate.precipitation_client import PrecipitationClient
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import load_config
 from src.config.schema import SiteConfig
@@ -82,6 +83,27 @@ class TestClimateConfig:
         config = ClimateConfig(api_key="explicit-key", api_email="explicit@test.com")
         assert config.api_key == "explicit-key"
         assert config.api_email == "explicit@test.com"
+
+    def test_ncei_token_default(self) -> None:
+        """Default NCEI token is set."""
+        config = ClimateConfig()
+        assert config.ncei_token == "WewidNCeiBHMUnnVbgNyjKxxHCSXXCad"
+
+    def test_ncei_token_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """NCEI_API_TOKEN env var overrides ncei_token field."""
+        monkeypatch.setenv("NCEI_API_TOKEN", "my-ncei-token")
+        config = ClimateConfig()
+        assert config.ncei_token == "my-ncei-token"
+
+    def test_precipitation_enabled_default(self) -> None:
+        """Precipitation is enabled by default."""
+        config = ClimateConfig()
+        assert config.precipitation_enabled is True
+
+    def test_max_station_distance_default(self) -> None:
+        """Default max station distance is 100 km."""
+        config = ClimateConfig()
+        assert config.max_station_distance_km == 100.0
 
 
 class TestDeduplication:
@@ -512,3 +534,110 @@ class TestEnhancedIntegration:
 
         listing_path = climate_results_dir / "cache_listing.json"
         listing_path.write_text(json.dumps(cache_listing, indent=2))
+
+
+class TestPrecipitationIntegration:
+    """Tests for precipitation client integration in the orchestrator."""
+
+    def test_without_precip_client_backward_compatible(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+    ) -> None:
+        """Orchestrator without precipitation client works as before."""
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
+
+        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
+        formatter = WeatherFormatter()
+        # No precipitation_client argument — backward compatible
+        orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
+
+        results = orch.fetch_climate_data(test_sites)
+
+        assert len(results) == 3
+        assert mock_client.fetch_weather_data.call_count == 3
+
+    def test_precip_client_called_on_cache_miss(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+    ) -> None:
+        """Precipitation client called for each unique location on cache miss."""
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
+
+        mock_precip = MagicMock(spec=PrecipitationClient)
+        mock_precip.fetch_precipitation.return_value = None
+
+        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(
+            mock_client, cache_manager, formatter,
+            precipitation_client=mock_precip,
+        )
+
+        results = orch.fetch_climate_data(test_sites)
+
+        # 3 unique locations, all cache misses → 3 precip calls
+        assert mock_precip.fetch_precipitation.call_count == 3
+        assert len(results) == 3
+
+    def test_precip_failure_doesnt_break_pipeline(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+    ) -> None:
+        """Precipitation failure (returns None) doesn't break the pipeline."""
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
+
+        mock_precip = MagicMock(spec=PrecipitationClient)
+        mock_precip.fetch_precipitation.return_value = None
+
+        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(
+            mock_client, cache_manager, formatter,
+            precipitation_client=mock_precip,
+        )
+
+        results = orch.fetch_climate_data(test_sites)
+
+        # Pipeline completes successfully despite precip failures
+        assert len(results) == 3
+        for path in results.values():
+            assert path.exists()
+
+    def test_cache_hits_skip_precipitation_fetch(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+    ) -> None:
+        """Cache hits skip precipitation fetch entirely."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+        # Pre-populate cache for all locations
+        for site in test_sites:
+            lat, lon = site.latitude, site.longitude
+            cache_file = cache_dir / f"nsrdb_{lat}_{lon}_{today}.csv"
+            cache_file.write_text(SAMPLE_NSRDB_CSV)
+
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_precip = MagicMock(spec=PrecipitationClient)
+
+        cache_manager = CacheManager(cache_dir=cache_dir)
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(
+            mock_client, cache_manager, formatter,
+            precipitation_client=mock_precip,
+        )
+
+        results = orch.fetch_climate_data(test_sites)
+
+        # All cache hits — no API calls, no precipitation calls
+        assert mock_client.fetch_weather_data.call_count == 0
+        assert mock_precip.fetch_precipitation.call_count == 0
+        assert len(results) == 3

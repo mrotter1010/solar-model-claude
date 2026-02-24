@@ -16,6 +16,9 @@ class ClimateConfig(BaseModel):
         cache_max_age_days: Maximum age for cached files before re-fetch.
         cache_dir: Directory for weather data cache files.
         max_cache_distance_km: Maximum distance for nearest-cache fallback.
+        ncei_token: NOAA NCEI API token. Overridden by NCEI_API_TOKEN env var.
+        precipitation_enabled: Whether to fetch precipitation data from NCEI.
+        max_station_distance_km: Maximum distance for NCEI station search.
     """
 
     api_key: str = "DEMO_KEY"
@@ -24,6 +27,9 @@ class ClimateConfig(BaseModel):
     cache_max_age_days: int = 365
     cache_dir: Path = Path("data/climate")
     max_cache_distance_km: float = 50.0
+    ncei_token: str = "WewidNCeiBHMUnnVbgNyjKxxHCSXXCad"
+    precipitation_enabled: bool = True
+    max_station_distance_km: float = 100.0
 
     @model_validator(mode="after")
     def load_env_overrides(self) -> "ClimateConfig":
@@ -32,4 +38,6 @@ class ClimateConfig(BaseModel):
             self.api_key = env_key
         if env_email := os.environ.get("NSRDB_API_EMAIL"):
             self.api_email = env_email
+        if env_ncei := os.environ.get("NCEI_API_TOKEN"):
+            self.ncei_token = env_ncei
         return self

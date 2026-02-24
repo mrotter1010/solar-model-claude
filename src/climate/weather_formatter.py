@@ -47,7 +47,11 @@ class WeatherFormatter:
     """Converts NSRDB CSV data into PySAM-compatible DataFrames and files."""
 
     def format_for_pysam(
-        self, nsrdb_csv: str, lat: float, lon: float
+        self,
+        nsrdb_csv: str,
+        lat: float,
+        lon: float,
+        precipitation: pd.Series | None = None,
     ) -> pd.DataFrame:
         """Parse NSRDB CSV and format for PySAM consumption.
 
@@ -58,6 +62,8 @@ class WeatherFormatter:
             nsrdb_csv: Raw CSV string from NSRDB API.
             lat: Site latitude (for logging/error context).
             lon: Site longitude (for logging/error context).
+            precipitation: Optional hourly precipitation series from NCEI.
+                If provided and length matches, replaces the default zeros.
 
         Returns:
             DataFrame with PySAM-compatible columns including Precipitation.
@@ -90,8 +96,17 @@ class WeatherFormatter:
         ]
         result = df[pysam_columns].copy()
 
-        # Add Precipitation column as zeros (required by PySAM but not in NSRDB)
-        result["Precipitation"] = 0
+        # Add Precipitation column (required by PySAM but not in NSRDB)
+        if precipitation is not None and len(precipitation) == len(result):
+            result["Precipitation"] = precipitation.values
+        else:
+            if precipitation is not None:
+                logger.warning(
+                    f"Precipitation length mismatch for ({lat}, {lon}): "
+                    f"expected {len(result)}, got {len(precipitation)}. "
+                    f"Falling back to zeros."
+                )
+            result["Precipitation"] = 0
 
         logger.info(
             f"Formatted {len(result)} rows for PySAM from ({lat}, {lon})"

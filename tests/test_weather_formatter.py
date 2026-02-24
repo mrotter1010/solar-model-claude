@@ -175,6 +175,47 @@ class TestSaveToCsv:
         )
 
 
+class TestPrecipitationParam:
+    """Tests for the optional precipitation parameter in format_for_pysam."""
+
+    def test_precipitation_series_merged(self) -> None:
+        """Provided precipitation Series replaces the default zeros."""
+        formatter = WeatherFormatter()
+        precip = pd.Series([0.5, 1.2, 0.0, 3.1, 0.8])
+
+        df = formatter.format_for_pysam(
+            SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98, precipitation=precip
+        )
+
+        assert "Precipitation" in df.columns
+        assert df["Precipitation"].iloc[0] == pytest.approx(0.5)
+        assert df["Precipitation"].iloc[1] == pytest.approx(1.2)
+        assert df["Precipitation"].iloc[3] == pytest.approx(3.1)
+
+    def test_precipitation_none_uses_zeros(self) -> None:
+        """Passing None (default) produces all-zero Precipitation column."""
+        formatter = WeatherFormatter()
+        df = formatter.format_for_pysam(
+            SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98, precipitation=None
+        )
+
+        assert "Precipitation" in df.columns
+        assert (df["Precipitation"] == 0).all()
+
+    def test_precipitation_length_mismatch_uses_zeros(self) -> None:
+        """Wrong-length precipitation falls back to zeros with warning."""
+        formatter = WeatherFormatter()
+        # CSV has 5 rows, provide 3-element Series
+        precip = pd.Series([1.0, 2.0, 3.0])
+
+        df = formatter.format_for_pysam(
+            SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98, precipitation=precip
+        )
+
+        assert "Precipitation" in df.columns
+        assert (df["Precipitation"] == 0).all()
+
+
 class TestFullYearRowCounts:
     """Tests for 8760/8784 row count validation."""
 

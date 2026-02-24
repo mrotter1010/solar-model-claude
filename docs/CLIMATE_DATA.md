@@ -17,7 +17,7 @@ The following fields are retrieved from the NSRDB PSM v3.2.2 API:
 | Wind Speed | m/s | Wind speed at 10m |
 | Surface Albedo | dimensionless | Ground reflectivity (0-1) |
 
-A `Precipitation` column (all zeros) is added during formatting since PySAM requires it but NSRDB does not provide it.
+A `Precipitation` column is added during formatting. When NCEI precipitation data is available, real hourly values are used; otherwise, zeros are used as a fallback.
 
 ## Cache System
 
@@ -129,5 +129,65 @@ All climate settings are managed via `ClimateConfig` (Pydantic model):
 | `cache_max_age_days` | `365` | - | Max cache file age |
 | `cache_dir` | `data/climate` | - | Cache directory |
 | `max_cache_distance_km` | `50.0` | - | Max nearest-cache distance |
+| `ncei_token` | `WewidNCeiBHMUnnVbgNyjKxxHCSXXCad` | `NCEI_API_TOKEN` | NOAA NCEI API token |
+| `precipitation_enabled` | `True` | - | Enable precipitation fetch |
+| `max_station_distance_km` | `100.0` | - | Max NCEI station distance |
 
 Environment variables override default values when set.
+
+## Precipitation Data (NOAA NCEI)
+
+### Overview
+
+The pipeline optionally fetches real hourly precipitation data from NOAA's National Centers for Environmental Information (NCEI) Climate Data Online (CDO) API. This replaces the default all-zeros Precipitation column with actual observed values.
+
+The design is **best-effort**: any failure in the precipitation pipeline returns `None` and the formatter falls back to zeros. Precipitation failures never break the main climate data pipeline.
+
+### NCEI API
+
+- **Base URL**: `https://www.ncei.noaa.gov/cdo-web/api/v2`
+- **Dataset**: `PRECIP_HLY` (Hourly Precipitation)
+- **Datatype**: `HPCP` (Hourly Precipitation Amount)
+- **Authentication**: Token-based via `headers = {'token': api_token}`
+- **Rate limit**: 5 requests/second (enforced client-side with 200ms minimum interval)
+
+### Station Search
+
+The `PrecipitationClient` finds the nearest weather station with hourly precipitation data:
+
+1. Convert `max_station_distance_km` to a lat/lon bounding box (`degrees ≈ km / 111`)
+2. Query the NCEI `/stations` endpoint for stations with HPCP data within the bounding box
+3. Calculate Haversine distance to each candidate station
+4. Select the closest station within `max_station_distance_km`
+
+### Data Alignment
+
+NCEI precipitation records are sparse (only non-zero hours may be reported). The client aligns these to a complete hourly series:
+
+1. Create a full hourly index for the year (8760 or 8784 hours)
+2. Parse NCEI ISO timestamps with `pd.to_datetime()`
+3. Reindex sparse data to the complete hourly index
+4. Fill gaps with `0.0` (no precipitation)
+
+### Failure Behavior
+
+The precipitation client **never raises exceptions**. All failures are caught, logged as warnings, and return `None`:
+
+- No station found within range → `None`
+- NCEI API error (timeout, HTTP error, connection error) → `None`
+- Empty data response → `None`
+- Any unexpected error → `None`
+
+The orchestrator logs a warning when precipitation is unavailable and the formatter falls back to zeros.
+
+### Precipitation Configuration
+
+| Setting | Default | Env Var | Description |
+|---------|---------|---------|-------------|
+| `ncei_token` | `WewidNCeiBHMUnnVbgNyjKxxHCSXXCad` | `NCEI_API_TOKEN` | NOAA NCEI API token |
+| `precipitation_enabled` | `True` | - | Enable/disable precipitation fetch |
+| `max_station_distance_km` | `100.0` | - | Max distance for NCEI station search |
+
+### Cache Interaction
+
+Precipitation is only fetched on NSRDB cache misses. When a cached PySAM weather file is reused, it already contains its Precipitation column (either real data or zeros from the original fetch). This avoids redundant NCEI API calls for cached locations.

@@ -43,6 +43,16 @@ export NSRDB_API_EMAIL="your-email@example.com"
 
 Without these variables, the tool defaults to `DEMO_KEY` which has lower rate limits.
 
+### NCEI Precipitation (Optional)
+
+The pipeline can optionally fetch real hourly precipitation data from NOAA NCEI. To use a custom API token:
+
+```bash
+export NCEI_API_TOKEN="your-ncei-token-here"
+```
+
+Precipitation fetching is best-effort: if it fails, the pipeline falls back to zeros. See [docs/CLIMATE_DATA.md](docs/CLIMATE_DATA.md) for details.
+
 **Cache behavior:** Weather data is cached in `data/climate/` as `nsrdb_{lat}_{lon}_{YYYYMMDD}.csv`. Cached files are reused if less than 365 days old. Sites sharing the same coordinates are deduplicated to avoid redundant API calls. See [docs/CLIMATE_DATA.md](docs/CLIMATE_DATA.md) for details.
 
 ## Usage
