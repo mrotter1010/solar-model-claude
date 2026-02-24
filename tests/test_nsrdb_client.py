@@ -174,3 +174,155 @@ class TestFetchWeatherData:
 
         with pytest.raises(ClimateDataError):
             client.fetch_weather_data(lat=33.45, lon=-111.98)
+
+
+class TestCoordinateFormats:
+    """Tests for various lat/lon format handling."""
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_negative_coordinates(self, mock_get: MagicMock) -> None:
+        """Negative lat and lon are formatted correctly in WKT."""
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_NSRDB_CSV
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        client.fetch_weather_data(lat=-33.87, lon=-151.21)
+
+        params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[1]["params"]
+        assert params["wkt"] == "POINT(-151.21 -33.87)"
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_extreme_latitude_90(self, mock_get: MagicMock) -> None:
+        """Extreme latitude (90°) is passed through correctly."""
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_NSRDB_CSV
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        client.fetch_weather_data(lat=90.0, lon=0.0)
+
+        params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[1]["params"]
+        assert params["wkt"] == "POINT(0.0 90.0)"
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_extreme_longitude_negative_180(self, mock_get: MagicMock) -> None:
+        """Extreme longitude (-180°) is passed through correctly."""
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_NSRDB_CSV
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        client.fetch_weather_data(lat=0.0, lon=-180.0)
+
+        params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[1]["params"]
+        assert params["wkt"] == "POINT(-180.0 0.0)"
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_high_decimal_precision(self, mock_get: MagicMock) -> None:
+        """High-precision coordinates are preserved in WKT."""
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_NSRDB_CSV
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        client.fetch_weather_data(lat=33.448376, lon=-112.074036)
+
+        params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[1]["params"]
+        assert params["wkt"] == "POINT(-112.074036 33.448376)"
+
+
+class TestYearParameter:
+    """Tests for year parameter handling."""
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_leap_year_2024(self, mock_get: MagicMock) -> None:
+        """Leap year 2024 is passed as names parameter."""
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_NSRDB_CSV
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        client.fetch_weather_data(lat=33.45, lon=-111.98, year=2024)
+
+        params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[1]["params"]
+        assert params["names"] == "2024"
+        # leap_day should always be "true" regardless of year
+        assert params["leap_day"] == "true"
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_non_leap_year_2023(self, mock_get: MagicMock) -> None:
+        """Non-leap year 2023 is passed as names parameter."""
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_NSRDB_CSV
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        client.fetch_weather_data(lat=33.45, lon=-111.98, year=2023)
+
+        params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[1]["params"]
+        assert params["names"] == "2023"
+
+
+class TestRateLimitAndMalformed:
+    """Tests for 429 rate limiting and malformed responses."""
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_429_rate_limit(self, mock_get: MagicMock) -> None:
+        """429 rate limit response raises ClimateDataError with status code."""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.text = "Rate limit exceeded. Try again later."
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_response
+        )
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+
+        with pytest.raises(ClimateDataError) as exc_info:
+            client.fetch_weather_data(lat=33.45, lon=-111.98)
+
+        assert exc_info.value.context["status_code"] == 429
+        assert "429" in exc_info.value.message
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_empty_response_body(self, mock_get: MagicMock) -> None:
+        """Empty response body is returned as-is (formatter validates later)."""
+        mock_response = MagicMock()
+        mock_response.text = ""
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        result = client.fetch_weather_data(lat=33.45, lon=-111.98)
+
+        # Client returns raw text; validation happens in formatter
+        assert result == ""
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_long_error_response_truncated_in_context(
+        self, mock_get: MagicMock
+    ) -> None:
+        """Long error responses are truncated to 500 chars in context."""
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = "X" * 1000
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_response
+        )
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+
+        with pytest.raises(ClimateDataError) as exc_info:
+            client.fetch_weather_data(lat=33.45, lon=-111.98)
+
+        # response snippet should be truncated to 500 chars
+        assert len(exc_info.value.context["response"]) == 500

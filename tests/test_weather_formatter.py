@@ -8,6 +8,7 @@ import pytest
 
 from src.climate.weather_formatter import REQUIRED_COLUMNS, WeatherFormatter
 from src.utils.exceptions import ClimateDataError
+from tests.conftest import generate_mock_nsrdb_csv
 
 # Realistic NSRDB CSV with 2-row metadata header
 SAMPLE_NSRDB_CSV = """Source,Location ID,City,State,Country,Latitude,Longitude,Time Zone,Elevation
@@ -172,3 +173,49 @@ class TestSaveToCsv:
                 default=str,
             )
         )
+
+
+class TestFullYearRowCounts:
+    """Tests for 8760/8784 row count validation."""
+
+    def test_non_leap_year_8760_rows(self, climate_results_dir: Path) -> None:
+        """Non-leap year (2023) produces 8760 data rows."""
+        csv_data = generate_mock_nsrdb_csv(year=2023, num_hours=8760)
+
+        formatter = WeatherFormatter()
+        df = formatter.format_for_pysam(csv_data, lat=33.45, lon=-111.98)
+
+        assert len(df) == 8760
+
+        # Save sample for inspection
+        output_path = climate_results_dir / "sample_pysam_weather.csv"
+        formatter.save_to_csv(
+            df, output_path, lat=33.45, lon=-111.98
+        )
+
+    def test_leap_year_8784_rows(self) -> None:
+        """Leap year (2024) produces 8784 data rows."""
+        csv_data = generate_mock_nsrdb_csv(year=2024, num_hours=8784)
+
+        formatter = WeatherFormatter()
+        df = formatter.format_for_pysam(csv_data, lat=33.45, lon=-111.98)
+
+        assert len(df) == 8784
+
+    def test_empty_data_rows_after_valid_header(self) -> None:
+        """CSV with valid header but no data rows produces empty DataFrame."""
+        csv_with_header_only = (
+            "Source,Location ID,City,State,Country,Latitude,Longitude,"
+            "Time Zone,Elevation\n"
+            "NSRDB,123456,Phoenix,AZ,United States,33.45,-111.98,-7,337\n"
+            "Year,Month,Day,Hour,Minute,GHI,DNI,DHI,"
+            "Temperature,Wind Speed,Surface Albedo\n"
+        )
+
+        formatter = WeatherFormatter()
+        df = formatter.format_for_pysam(csv_with_header_only, lat=33.45, lon=-111.98)
+
+        assert len(df) == 0
+        # Columns should still be present even with no data
+        for col in REQUIRED_COLUMNS:
+            assert col in df.columns

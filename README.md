@@ -29,6 +29,22 @@ conda env create -f environment.yml
 conda activate solar-model
 ```
 
+### NSRDB API Setup
+
+The climate data pipeline uses NREL's National Solar Radiation Database (NSRDB) API. To configure:
+
+1. **Get an API key** at [https://developer.nrel.gov/signup/](https://developer.nrel.gov/signup/)
+2. **Set environment variables:**
+
+```bash
+export NSRDB_API_KEY="your-api-key-here"
+export NSRDB_API_EMAIL="your-email@example.com"
+```
+
+Without these variables, the tool defaults to `DEMO_KEY` which has lower rate limits.
+
+**Cache behavior:** Weather data is cached in `data/climate/` as `nsrdb_{lat}_{lon}_{YYYYMMDD}.csv`. Cached files are reused if less than 365 days old. Sites sharing the same coordinates are deduplicated to avoid redundant API calls. See [docs/CLIMATE_DATA.md](docs/CLIMATE_DATA.md) for details.
+
 ## Usage
 
 ### Input

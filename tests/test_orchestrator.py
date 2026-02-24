@@ -13,6 +13,7 @@ from src.climate.nsrdb_client import NSRDBClient
 from src.climate.orchestrator import ClimateOrchestrator
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import load_config
+from src.config.schema import SiteConfig
 from src.utils.exceptions import ClimateDataError
 
 # Realistic NSRDB CSV with 2-row metadata header (matches test_weather_formatter)
@@ -314,3 +315,200 @@ class TestIntegration:
         }
         output_path = test_results_dir / "test_orchestrator_integration.json"
         output_path.write_text(json.dumps(output, indent=2))
+
+
+class TestFiveSiteDeduplication:
+    """Tests for 5 sites / 3 unique locations deduplication."""
+
+    def test_five_sites_three_locations(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+        climate_results_dir: Path,
+    ) -> None:
+        """5 sites at 3 unique locations results in exactly 3 API calls."""
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
+
+        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
+
+        results = orch.fetch_climate_data(test_sites)
+
+        # 3 unique locations: Phoenix, Tucson, Flagstaff
+        assert len(results) == 3
+        assert mock_client.fetch_weather_data.call_count == 3
+
+        # Write deduplication log for inspection
+        location_map: dict[str, list[str]] = {}
+        for site in test_sites:
+            key = f"({site.latitude}, {site.longitude})"
+            location_map.setdefault(key, []).append(site.site_name)
+
+        log_path = climate_results_dir / "api_deduplication_log.json"
+        log_path.write_text(
+            json.dumps(
+                {
+                    "total_sites": len(test_sites),
+                    "unique_locations": len(results),
+                    "api_calls": mock_client.fetch_weather_data.call_count,
+                    "sites_per_location": location_map,
+                },
+                indent=2,
+            )
+        )
+
+
+class TestMixedCacheScenario:
+    """Tests for mixed cache hit/miss/stale scenarios."""
+
+    def test_mixed_cache_fresh_stale_uncached(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+    ) -> None:
+        """1 fresh cache hit, 1 stale miss, 1 uncached -> 2 API calls."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+        # Fresh cache for Phoenix (33.45, -111.98)
+        phoenix_cache = cache_dir / f"nsrdb_33.45_-111.98_{today}.csv"
+        phoenix_cache.write_text(SAMPLE_NSRDB_CSV)
+
+        # Stale cache for Tucson (32.22, -110.97) — 400 days old
+        tucson_cache = cache_dir / "nsrdb_32.22_-110.97_20240101.csv"
+        tucson_cache.write_text(SAMPLE_NSRDB_CSV)
+
+        # No cache for Flagstaff (35.20, -111.65)
+
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
+
+        cache_manager = CacheManager(cache_dir=cache_dir)
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
+
+        results = orch.fetch_climate_data(test_sites)
+
+        # Phoenix: cache hit (0 API calls)
+        # Tucson: stale cache -> API call (1)
+        # Flagstaff: no cache -> API call (2)
+        assert len(results) == 3
+        assert mock_client.fetch_weather_data.call_count == 2
+
+
+class TestApiFailureInFetchClimateData:
+    """Tests for API failure path within fetch_climate_data (lines 77-82)."""
+
+    def test_api_failure_triggers_handle_api_failure(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+    ) -> None:
+        """API failure in fetch_climate_data calls handle_api_failure."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+        # Create a nearby cache file for fallback
+        nearby_cache = cache_dir / f"nsrdb_33.46_-111.97_{today}.csv"
+        nearby_cache.write_text(SAMPLE_NSRDB_CSV)
+
+        mock_client = MagicMock(spec=NSRDBClient)
+        # All API calls fail
+        mock_client.fetch_weather_data.side_effect = ClimateDataError(
+            "API temporarily unavailable"
+        )
+
+        cache_manager = CacheManager(cache_dir=cache_dir)
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
+
+        # Use only one site so we can control the flow
+        single_site = [test_sites[0]]  # Phoenix (33.45, -111.98)
+
+        # User selects "use nearest cache" (option 2) when prompted
+        with patch("builtins.input", return_value="2"):
+            results = orch.fetch_climate_data(single_site)
+
+        # Should have recovered using the nearby cache
+        assert len(results) == 1
+        path = list(results.values())[0]
+        assert path == nearby_cache
+
+    def test_api_failure_abort_in_fetch_climate_data(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+    ) -> None:
+        """API failure + user abort in fetch_climate_data raises ClimateDataError."""
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_client.fetch_weather_data.side_effect = ClimateDataError("API down")
+
+        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
+
+        single_site = [test_sites[0]]
+
+        # User selects abort (option 2 when no nearby cache)
+        with patch("builtins.input", return_value="2"):
+            with pytest.raises(ClimateDataError, match="aborted by user"):
+                orch.fetch_climate_data(single_site)
+
+
+class TestEnhancedIntegration:
+    """Enhanced integration tests with artifact output."""
+
+    def test_full_pipeline_with_artifacts(
+        self,
+        test_sites: list[SiteConfig],
+        tmp_path: Path,
+        climate_results_dir: Path,
+    ) -> None:
+        """End-to-end test writing comprehensive artifacts to test_results/climate/."""
+        mock_client = MagicMock(spec=NSRDBClient)
+        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
+
+        cache_dir = tmp_path / "cache"
+        cache_manager = CacheManager(cache_dir=cache_dir)
+        formatter = WeatherFormatter()
+        orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
+
+        # Act — fetch for all 5 sites
+        results = orch.fetch_climate_data(test_sites)
+
+        # Assert
+        assert len(results) == 3  # 3 unique locations
+        assert mock_client.fetch_weather_data.call_count == 3
+        for path in results.values():
+            assert path.exists()
+
+        # Write integration summary
+        summary_path = climate_results_dir / "integration_summary.json"
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "total_sites": len(test_sites),
+                    "unique_locations": len(results),
+                    "api_calls": mock_client.fetch_weather_data.call_count,
+                    "cache_hits": 0,
+                    "locations": [
+                        {"lat": lat, "lon": lon, "file": str(path)}
+                        for (lat, lon), path in results.items()
+                    ],
+                },
+                indent=2,
+            )
+        )
+
+        # Write cache listing
+        cache_files = list(cache_dir.glob("nsrdb_*.csv"))
+        cache_listing = []
+        for f in cache_files:
+            cache_listing.append({"filename": f.name, "size_bytes": f.stat().st_size})
+
+        listing_path = climate_results_dir / "cache_listing.json"
+        listing_path.write_text(json.dumps(cache_listing, indent=2))

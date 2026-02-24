@@ -1,9 +1,12 @@
 """Shared pytest fixtures for solar model tests."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import pytest
+
+from src.config.schema import SiteConfig
 
 
 @pytest.fixture()
@@ -189,3 +192,189 @@ def sample_missing_fields_csv(tmp_path: Path) -> Path:
     df.to_csv(csv_path, index=False)
 
     return csv_path
+
+
+def generate_mock_nsrdb_csv(
+    lat: float = 33.45,
+    lon: float = -111.98,
+    year: int = 2024,
+    num_hours: int = 24,
+) -> str:
+    """Generate a realistic NSRDB CSV string with 2-row header + hourly data.
+
+    Args:
+        lat: Site latitude for the metadata header.
+        lon: Site longitude for the metadata header.
+        year: Data year for the time columns.
+        num_hours: Number of hourly data rows to generate.
+
+    Returns:
+        CSV string matching NSRDB API response format.
+    """
+    # Row 1: metadata labels
+    header1 = (
+        "Source,Location ID,City,State,Country,Latitude,Longitude,"
+        "Time Zone,Elevation"
+    )
+    # Row 2: metadata values
+    header2 = f"NSRDB,123456,TestCity,AZ,United States,{lat},{lon},-7,337"
+
+    # Column names row
+    columns = (
+        "Year,Month,Day,Hour,Minute,GHI,DNI,DHI,"
+        "Temperature,Wind Speed,Surface Albedo"
+    )
+
+    # Generate hourly data rows
+    rows = []
+    hour = 0
+    month = 1
+    day = 1
+    for i in range(num_hours):
+        # Simple solar pattern: GHI peaks at noon
+        if 6 <= hour <= 18:
+            ghi = int(100 + 500 * max(0, 1 - abs(hour - 12) / 6))
+            dni = int(ghi * 1.2)
+            dhi = int(ghi * 0.2)
+        else:
+            ghi, dni, dhi = 0, 0, 0
+
+        temp = round(15.0 + 10.0 * max(0, 1 - abs(hour - 14) / 10), 1)
+        wind = round(2.0 + 1.5 * (hour % 5) / 5, 1)
+        albedo = 0.18
+
+        rows.append(
+            f"{year},{month},{day},{hour},0,{ghi},{dni},{dhi},"
+            f"{temp},{wind},{albedo}"
+        )
+
+        hour += 1
+        if hour >= 24:
+            hour = 0
+            day += 1
+            if day > 28:
+                day = 1
+                month += 1
+                if month > 12:
+                    month = 1
+
+    lines = [header1, header2, columns] + rows
+    return "\n".join(lines) + "\n"
+
+
+@pytest.fixture()
+def mock_nsrdb_response() -> str:
+    """Generate a realistic 120-row NSRDB CSV response for testing.
+
+    Returns:
+        CSV string with 2-row header + 120 hourly data rows.
+    """
+    return generate_mock_nsrdb_csv(num_hours=120)
+
+
+@pytest.fixture()
+def sample_cache_files(tmp_path: Path) -> dict[str, Path]:
+    """Create temp cache files at known locations and dates.
+
+    Returns:
+        Dict mapping descriptive names to cache file paths.
+    """
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    files = {}
+    # Phoenix cache file (fresh)
+    phoenix = cache_dir / f"nsrdb_33.45_-111.98_{today}.csv"
+    phoenix.write_text(generate_mock_nsrdb_csv(33.45, -111.98))
+    files["phoenix"] = phoenix
+
+    # Tucson cache file (fresh)
+    tucson = cache_dir / f"nsrdb_32.22_-110.97_{today}.csv"
+    tucson.write_text(generate_mock_nsrdb_csv(32.22, -110.97))
+    files["tucson"] = tucson
+
+    # Flagstaff cache file (stale — 400 days old)
+    flagstaff = cache_dir / "nsrdb_35.2_-111.65_20240101.csv"
+    flagstaff.write_text(generate_mock_nsrdb_csv(35.2, -111.65))
+    files["flagstaff_stale"] = flagstaff
+
+    files["cache_dir"] = cache_dir
+    return files
+
+
+@pytest.fixture()
+def test_sites() -> list[SiteConfig]:
+    """Return 5 SiteConfig objects at Phoenix, Tucson, and Flagstaff.
+
+    3 unique locations:
+    - Phoenix (33.45, -111.98): 2 sites (tracker + fixed)
+    - Tucson (32.22, -110.97): 2 sites (tracker + fixed)
+    - Flagstaff (35.20, -111.65): 1 site
+
+    Returns:
+        List of 5 SiteConfig objects.
+    """
+    base = {
+        "customer": "TestCo",
+        "dc_size_mw": 10.0,
+        "ac_installed_mw": 8.0,
+        "ac_poi_mw": 8.0,
+        "tilt": 25.0,
+        "azimuth": 180.0,
+        "module_orientation": "portrait",
+        "number_of_modules": 2,
+        "ground_clearance_height_m": 1.5,
+        "panel_model": "Test Panel",
+        "bifacial": True,
+        "inverter_model": "Test Inverter",
+        "gcr": 0.35,
+        "shading_percent": 1.0,
+        "dc_wiring_loss_percent": 1.5,
+        "ac_wiring_loss_percent": 1.5,
+        "transformer_losses_percent": 0.0,
+        "degradation_percent": 0.3,
+        "availability_percent": 98.0,
+        "module_mismatch_percent": 1.5,
+        "lid_percent": 1.0,
+    }
+    return [
+        SiteConfig(
+            run_name="PHX1", site_name="Phoenix_Tracker",
+            latitude=33.45, longitude=-111.98, racking="tracker",
+            **base,
+        ),
+        SiteConfig(
+            run_name="PHX2", site_name="Phoenix_Fixed",
+            latitude=33.45, longitude=-111.98, racking="fixed",
+            **base,
+        ),
+        SiteConfig(
+            run_name="TUS1", site_name="Tucson_Tracker",
+            latitude=32.22, longitude=-110.97, racking="tracker",
+            **base,
+        ),
+        SiteConfig(
+            run_name="TUS2", site_name="Tucson_Fixed",
+            latitude=32.22, longitude=-110.97, racking="fixed",
+            **base,
+        ),
+        SiteConfig(
+            run_name="FLG1", site_name="Flagstaff_Tracker",
+            latitude=35.20, longitude=-111.65, racking="tracker",
+            **base,
+        ),
+    ]
+
+
+@pytest.fixture()
+def climate_results_dir() -> Path:
+    """Create and return the climate test results directory.
+
+    Returns:
+        Path to outputs/test_results/climate/ directory.
+    """
+    results_dir = Path("outputs/test_results/climate")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    return results_dir
