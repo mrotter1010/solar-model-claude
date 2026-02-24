@@ -90,10 +90,26 @@ open htmlcov/index.html
 - `tests/fixtures/`: Sample CSV files for testing
 - `tests/test_*.py`: Test modules mirroring src/ structure
 
-## Planned Milestones
+## Running the Climate Pipeline
+
+Fetch weather data for all sites in a CSV:
+
+```bash
+python scripts/test_climate_data.py --csv "Energy Analytics Inputs Single Row Test - Sheet1.csv"
+python scripts/test_climate_data.py --csv "Energy Analytics Inputs Multi Row Test - Sheet1.csv" --year 2023
+```
+
+The pipeline will:
+1. Parse and validate site configurations from the CSV
+2. Deduplicate locations (sites at the same lat/lon share one API call)
+3. Check the local cache (`data/climate/`) before calling the NSRDB API
+4. Fetch precipitation data from NOAA NCEI (best-effort, falls back to zeros)
+5. Format weather files for PySAM consumption
+
+## Milestones
 
 1. **Core Infrastructure** - Config validation, logging, error handling
-2. **Climate Data Integration** - NSRDB API client for weather data retrieval
+2. **Climate Data Integration** - NSRDB API client, caching, precipitation, pipeline entry point
 3. **PySAM Model Execution** - Detailed PV model configuration and simulation
 4. **Output Processing** - 8760 timeseries generation, summary metrics
 5. **Parallelization & Optimization** - Multi-site concurrent processing

@@ -1,5 +1,7 @@
 """Pydantic validation model for solar site configuration."""
 
+from pathlib import Path
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -16,6 +18,9 @@ class SiteConfig(BaseModel):
     # Location
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+
+    # Climate data
+    weather_file_path: Path | None = None
 
     # BESS (store but don't validate - for future use)
     bess_dispatch_required: float | None = None
@@ -105,6 +110,11 @@ class SiteConfig(BaseModel):
         but PySAM expects availability (uptime). This inverts the value.
         """
         return 100 - self.availability_percent
+
+    @property
+    def has_climate_data(self) -> bool:
+        """Check if a weather file has been assigned and exists on disk."""
+        return self.weather_file_path is not None and self.weather_file_path.exists()
 
     @property
     def location(self) -> tuple[float, float]:

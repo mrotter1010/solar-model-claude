@@ -92,7 +92,60 @@ The `ClimateOrchestrator.fetch_climate_data()` method deduplicates API calls:
 
 Multiple sites at the same coordinates share a single weather file.
 
-## Example Usage
+## Full Pipeline Workflow
+
+```
+CSV Input
+  |
+  v
+load_config() --> list[SiteConfig]
+  |
+  v
+get_unique_locations() --> deduplicated (lat, lon) list
+  |
+  v
+For each unique location:
+  |
+  +---> CacheManager.get_cached_file()
+  |       |
+  |       +-- Cache hit  --> use cached file
+  |       +-- Cache miss --> NSRDBClient.fetch_weather_data()
+  |                            |
+  |                            +---> CacheManager.save_weather_data()
+  |                            +---> PrecipitationClient (optional, best-effort)
+  |                            +---> WeatherFormatter.format_for_pysam()
+  |                            +---> WeatherFormatter.save_to_csv()
+  |
+  v
+Assign weather_file_path to each SiteConfig
+  |
+  v
+Return list[SiteConfig] with climate data attached
+```
+
+### Pipeline Entry Point
+
+```python
+from pathlib import Path
+from src.pipeline import run_climate_data_pipeline
+
+# Single function call handles everything
+sites = run_climate_data_pipeline(Path("input/sites.csv"), year=2024)
+
+# Each site now has a weather_file_path
+for site in sites:
+    if site.has_climate_data:
+        print(f"{site.site_name}: {site.weather_file_path}")
+```
+
+### CLI Usage
+
+```bash
+python scripts/test_climate_data.py --csv "Energy Analytics Inputs Single Row Test - Sheet1.csv"
+python scripts/test_climate_data.py --csv input.csv --year 2023
+```
+
+## Example Usage (Components)
 
 ```python
 from src.climate.nsrdb_client import NSRDBClient
@@ -191,3 +244,24 @@ The orchestrator logs a warning when precipitation is unavailable and the format
 ### Cache Interaction
 
 Precipitation is only fetched on NSRDB cache misses. When a cached PySAM weather file is reused, it already contains its Precipitation column (either real data or zeros from the original fetch). This avoids redundant NCEI API calls for cached locations.
+
+## Troubleshooting
+
+### NSRDB API rate limit / 403 errors
+
+The default `DEMO_KEY` has strict rate limits. Get a free API key at [https://developer.nrel.gov/signup/](https://developer.nrel.gov/signup/) and set `NSRDB_API_KEY`.
+
+### Cache not being used
+
+Cache files follow the pattern `nsrdb_{lat}_{lon}_{YYYYMMDD}.csv`. Coordinates must match exactly (including decimal precision). Files older than `cache_max_age_days` (default 365) are treated as stale.
+
+### Precipitation data missing
+
+Precipitation fetching is best-effort. Common reasons it returns zeros:
+- No NCEI station with hourly data within `max_station_distance_km` (default 100 km)
+- NCEI API timeout or rate limit (5 req/sec)
+- Station exists but has no data for the requested year
+
+### Weather file has wrong number of rows
+
+NSRDB should return 8760 rows for a standard year (8784 for leap years). If you see fewer rows, check the API response in the raw cache file (`nsrdb_*.csv`).
