@@ -12,6 +12,7 @@ from src.pysam_integration.cec_database import (
     CECModuleParams,
 )
 from src.pysam_integration.exceptions import ValidationError
+from src.pysam_integration.string_calculator import StringCalculator, StringConfiguration
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -29,6 +30,7 @@ class PySAMModelConfig:
     inverter_params: CECInverterParams
     inverter_count: int
     dc_ac_ratio: float
+    string_config: StringConfiguration | None = None
     metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -37,6 +39,7 @@ class ModelConfigurator:
 
     def __init__(self, cec_database: CECDatabase | None = None) -> None:
         self.cec_db = cec_database or CECDatabase()
+        self.string_calc = StringCalculator()
 
     def configure_model(self, site_config: SiteConfig) -> PySAMModelConfig:
         """Configure a PySAM Pvsamv1 model from a validated SiteConfig.
@@ -71,7 +74,9 @@ class ModelConfigurator:
         self._configure_system_capacity(model, site_config)
         self._configure_module(model, module_params)
         self._configure_inverter(model, inverter_params, inverter_count)
-        self._configure_array(model, site_config)
+        string_config = self._configure_array(
+            model, site_config, module_params
+        )
         self._configure_losses(model, site_config)
 
         if site_config.weather_file_path is not None:
@@ -80,7 +85,8 @@ class ModelConfigurator:
         logger.info(
             f"PySAM model configured: DC/AC={dc_ac_ratio:.2f}, "
             f"inverters={inverter_count}, "
-            f"capacity={site_config.system_capacity_kw:.1f} kW"
+            f"capacity={site_config.system_capacity_kw:.1f} kW, "
+            f"strings={string_config.nstrings}×{string_config.modules_per_string}"
         )
 
         return PySAMModelConfig(
@@ -90,6 +96,7 @@ class ModelConfigurator:
             inverter_params=inverter_params,
             inverter_count=inverter_count,
             dc_ac_ratio=dc_ac_ratio,
+            string_config=string_config,
         )
 
     def _validate_dc_ac_ratio(self, site_config: SiteConfig) -> float:
@@ -173,9 +180,12 @@ class ModelConfigurator:
         model.SystemDesign.inverter_count = inverter_count
 
     def _configure_array(
-        self, model: pvsam.Pvsamv1, site_config: SiteConfig
-    ) -> None:
-        """Set array configuration — tracking, tilt, azimuth, GCR, bifaciality."""
+        self,
+        model: pvsam.Pvsamv1,
+        site_config: SiteConfig,
+        module_params: CECModuleParams,
+    ) -> StringConfiguration:
+        """Set array configuration — tracking, tilt, azimuth, GCR, bifaciality, strings."""
         # Tracking mode
         model.SystemDesign.subarray1_track_mode = site_config.tracking_mode
 
@@ -208,9 +218,16 @@ class ModelConfigurator:
         if site_config.racking == "tracker":
             cec.cec_ground_clearance_height = site_config.ground_clearance_height_m
 
-        # String sizing stubbed for Prompt 3
-        model.SystemDesign.subarray1_nstrings = 0
-        model.SystemDesign.subarray1_modules_per_string = 0
+        # String sizing
+        string_config = self.string_calc.calculate_strings(
+            site_config.dc_size_mw, module_params.pmax
+        )
+        model.SystemDesign.subarray1_nstrings = string_config.nstrings
+        model.SystemDesign.subarray1_modules_per_string = (
+            string_config.modules_per_string
+        )
+
+        return string_config
 
     def _configure_losses(
         self, model: pvsam.Pvsamv1, site_config: SiteConfig

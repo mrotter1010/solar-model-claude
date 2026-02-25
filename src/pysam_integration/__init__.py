@@ -11,11 +11,16 @@ from src.pysam_integration.exceptions import (
     InverterUndersizedError,
     ModuleNotFoundError,
     PySAMConfigurationError,
+    StringCalculationError,
     ValidationError,
 )
 from src.pysam_integration.model_configurator import (
     ModelConfigurator,
     PySAMModelConfig,
+)
+from src.pysam_integration.string_calculator import (
+    StringCalculator,
+    StringConfiguration,
 )
 
 __all__ = [
@@ -28,6 +33,9 @@ __all__ = [
     "PySAMConfigurationError",
     "ValidationError",
     "InverterUndersizedError",
+    "StringCalculationError",
     "ModelConfigurator",
     "PySAMModelConfig",
+    "StringCalculator",
+    "StringConfiguration",
 ]

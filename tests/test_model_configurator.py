@@ -92,6 +92,13 @@ class TestSuccessfulConfiguration:
         # Tracking mode = 1 (tracker)
         assert result.model.SystemDesign.subarray1_track_mode == 1
 
+        # String sizing is populated (not stubbed zeros)
+        assert result.model.SystemDesign.subarray1_nstrings > 0
+        assert result.model.SystemDesign.subarray1_modules_per_string > 0
+        assert result.string_config is not None
+        assert result.string_config.nstrings == result.model.SystemDesign.subarray1_nstrings
+        assert result.string_config.modules_per_string == result.model.SystemDesign.subarray1_modules_per_string
+
     def test_configure_sets_weather_file(self, configurator: ModelConfigurator) -> None:
         """Verify weather file path is set when provided."""
         weather_path = Path("/tmp/test_weather.csv")
@@ -320,6 +327,39 @@ class TestModuleOrientation:
         assert result.model.Layout.subarray1_mod_orient == 1
 
 
+# -- Test: String configuration integration --
+
+
+class TestStringConfigIntegration:
+    """Test string calculator integration in model configurator."""
+
+    def test_string_config_populated(
+        self, configurator: ModelConfigurator, site_config: SiteConfig
+    ) -> None:
+        """string_config is populated with valid values."""
+        result = configurator.configure_model(site_config)
+
+        sc = result.string_config
+        assert sc is not None
+        assert sc.nstrings >= 1
+        assert 10 <= sc.modules_per_string <= 40
+        assert sc.total_modules == sc.nstrings * sc.modules_per_string
+        assert sc.deviation_pct <= 2.0
+        assert sc.dc_size_mw_target == site_config.dc_size_mw
+
+    def test_string_config_varies_with_dc_size(
+        self, configurator: ModelConfigurator
+    ) -> None:
+        """Different DC sizes produce different string configs."""
+        config_small = _make_site_config(dc_size_mw=10.0, ac_installed_mw=8.0)
+        config_large = _make_site_config(dc_size_mw=100.0, ac_installed_mw=80.0)
+
+        result_small = configurator.configure_model(config_small)
+        result_large = configurator.configure_model(config_large)
+
+        assert result_small.string_config.total_modules < result_large.string_config.total_modules
+
+
 # -- Artifact writer --
 
 
@@ -360,6 +400,10 @@ class TestArtifactWriter:
             f"Azimuth: {result.model.SystemDesign.subarray1_azimuth}",
             f"GCR: {result.model.SystemDesign.subarray1_gcr}",
             f"Bifaciality: {result.model.CECPerformanceModelWithModuleDatabase.cec_bifaciality}",
+            f"Strings: {result.string_config.nstrings}",
+            f"Modules/String: {result.string_config.modules_per_string}",
+            f"Total Modules: {result.string_config.total_modules}",
+            f"String Deviation: {result.string_config.deviation_pct:.4f}%",
             "",
             "--- Losses ---",
             f"DC Wiring: {result.model.Losses.subarray1_dcwiring_loss}%",

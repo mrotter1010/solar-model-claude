@@ -13,6 +13,24 @@ class ValidationError(PySAMConfigurationError):
     pass
 
 
+class StringCalculationError(PySAMConfigurationError):
+    """Raised when string sizing cannot satisfy constraints."""
+
+    def __init__(
+        self, dc_size_mw: float, module_wattage: float, total_modules: int
+    ) -> None:
+        self.dc_size_mw = dc_size_mw
+        self.module_wattage = module_wattage
+        self.total_modules = total_modules
+        super().__init__(
+            f"Cannot find valid string configuration for "
+            f"DC={dc_size_mw} MW with {module_wattage}W modules "
+            f"({total_modules} total modules).\n"
+            f"Constraints: 10-40 modules/string, ≤2% deviation from target DC size.\n"
+            f"Suggestions: adjust DC size or choose a different module."
+        )
+
+
 class InverterUndersizedError(PySAMConfigurationError):
     """Raised when inverter AC capacity is too small relative to DC capacity."""
 
