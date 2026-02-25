@@ -7,16 +7,24 @@ from src.pysam_integration.cec_database import (
 )
 from src.pysam_integration.exceptions import (
     CECDatabaseError,
+    InvalidParameterError,
     InverterNotFoundError,
     InverterUndersizedError,
     ModuleNotFoundError,
     PySAMConfigurationError,
+    SimulationExecutionError,
     StringCalculationError,
     ValidationError,
+    WeatherFileError,
 )
 from src.pysam_integration.model_configurator import (
     ModelConfigurator,
     PySAMModelConfig,
+)
+from src.pysam_integration.simulator import (
+    BatchSimulator,
+    PySAMSimulator,
+    SimulationResult,
 )
 from src.pysam_integration.string_calculator import (
     StringCalculator,
@@ -24,18 +32,24 @@ from src.pysam_integration.string_calculator import (
 )
 
 __all__ = [
+    "BatchSimulator",
     "CECDatabase",
     "CECModuleParams",
     "CECInverterParams",
     "CECDatabaseError",
-    "ModuleNotFoundError",
+    "InvalidParameterError",
     "InverterNotFoundError",
-    "PySAMConfigurationError",
-    "ValidationError",
     "InverterUndersizedError",
-    "StringCalculationError",
-    "ModelConfigurator",
+    "ModuleNotFoundError",
+    "PySAMConfigurationError",
     "PySAMModelConfig",
+    "PySAMSimulator",
+    "SimulationExecutionError",
+    "SimulationResult",
+    "StringCalculationError",
     "StringCalculator",
     "StringConfiguration",
+    "ModelConfigurator",
+    "ValidationError",
+    "WeatherFileError",
 ]

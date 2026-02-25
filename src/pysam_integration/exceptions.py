@@ -87,3 +87,21 @@ class InverterNotFoundError(CECDatabaseError):
             f"Available inverters: {', '.join(similar_inverters[:3]) if similar_inverters else 'See logs for full list'}\n"
             f"Please update CSV with exact inverter name from database."
         )
+
+
+class SimulationExecutionError(PySAMConfigurationError):
+    """Base exception for simulation execution failures."""
+
+    pass
+
+
+class WeatherFileError(SimulationExecutionError):
+    """Raised when weather file is missing or corrupted."""
+
+    pass
+
+
+class InvalidParameterError(SimulationExecutionError):
+    """Raised when PySAM parameters are invalid."""
+
+    pass
