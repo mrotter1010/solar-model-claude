@@ -1,6 +1,30 @@
 """Custom exceptions for PySAM integration."""
 
 
+class PySAMConfigurationError(Exception):
+    """Base exception for PySAM model configuration errors."""
+
+    pass
+
+
+class ValidationError(PySAMConfigurationError):
+    """Raised when a configuration value fails validation."""
+
+    pass
+
+
+class InverterUndersizedError(PySAMConfigurationError):
+    """Raised when inverter AC capacity is too small relative to DC capacity."""
+
+    def __init__(self, dc_ac_ratio: float, max_ratio: float = 2.0) -> None:
+        self.dc_ac_ratio = dc_ac_ratio
+        self.max_ratio = max_ratio
+        super().__init__(
+            f"DC/AC ratio {dc_ac_ratio:.2f} exceeds maximum {max_ratio:.1f}. "
+            f"Inverter is undersized for the DC array capacity."
+        )
+
+
 class CECDatabaseError(Exception):
     """Base exception for CEC database errors."""
 

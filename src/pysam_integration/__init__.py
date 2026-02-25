@@ -8,7 +8,14 @@ from src.pysam_integration.cec_database import (
 from src.pysam_integration.exceptions import (
     CECDatabaseError,
     InverterNotFoundError,
+    InverterUndersizedError,
     ModuleNotFoundError,
+    PySAMConfigurationError,
+    ValidationError,
+)
+from src.pysam_integration.model_configurator import (
+    ModelConfigurator,
+    PySAMModelConfig,
 )
 
 __all__ = [
@@ -18,4 +25,9 @@ __all__ = [
     "CECDatabaseError",
     "ModuleNotFoundError",
     "InverterNotFoundError",
+    "PySAMConfigurationError",
+    "ValidationError",
+    "InverterUndersizedError",
+    "ModelConfigurator",
+    "PySAMModelConfig",
 ]
