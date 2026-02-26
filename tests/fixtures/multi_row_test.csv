@@ -1,4 +1,4 @@
 Run Name,Site Name,Customer,Latitude,Longitude,BESS Dispatch Required,BESS Optimization Required,DC Size (MW),AC Installed (MW),AC POI (MW),Racking,Tilt,Azimuth,Module Orientation,Number of Modules,Ground Clearance Height (m),Panel Model,Bifacial,Inverter Model,GCR,Shading (%),DC Wiring Loss (%),AC Wiring Loss (%),Transformer Losses (%),Degradation (%),Availability (%),Module Mismatch (%),LID(%)
-Run_001,Phoenix Solar Farm,SunCorp,33.4484,-112.074,,,250.0,200.0,195.0,Tracker,0,180,Portrait,2,1.5,LONGi LR5-72HBD 550M,True,SMA Sunny Central UP,0.35,2.0,1.5,0.5,1.0,0.5,2.0,1.0,1.5
-Run_001,Tucson Array,SunCorp,32.2226,-110.9747,,,150.0,120.0,115.0,Fixed,25,180,Landscape,1,1.2,Canadian Solar CS7N-665TB-AG,True,Power Electronics FS3000,0.40,1.5,2.0,0.5,0.8,0.5,1.5,0.8,1.0
-Run_002,Vegas Flats,DesertPower,36.1699,-115.1398,,,300.0,250.0,240.0,Tracker,0,180,Portrait,2,1.8,Trina TSM-DEG21C.20,False,Sungrow SG3125HV,0.30,3.0,1.0,0.5,1.2,0.5,2.5,1.2,2.0
+Run_001,Phoenix Solar Farm,SunCorp,33.4484,-112.074,,,250.0,200.0,195.0,Tracker,0,180,Portrait,2,1.5,Canadian Solar CS3U-355P,True,SMA America: SB5.0-1SP-US-40 240V,0.35,2.0,1.5,0.5,1.0,0.5,2.0,1.0,1.5
+Run_001,Tucson Array,SunCorp,32.2226,-110.9747,,,150.0,120.0,115.0,Fixed,25,180,Landscape,1,1.2,Canadian Solar CS1U-410MS,True,Power Electronics: FS3000E,0.40,1.5,2.0,0.5,0.8,0.5,1.5,0.8,1.0
+Run_002,Vegas Flats,DesertPower,36.1699,-115.1398,,,300.0,250.0,240.0,Tracker,0,180,Portrait,2,1.8,Trina Solar TSM-DEG19C.20,False,Sungrow Power Supply: SG250HX,0.30,3.0,1.0,0.5,1.2,0.5,2.5,1.2,2.0
