@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from src.config.schema import SiteConfig
-from src.pysam_integration.cec_database import CECDatabase
 from src.pysam_integration.exceptions import (
     InverterNotFoundError,
     ModuleNotFoundError,
@@ -106,6 +105,65 @@ class TestSuccessfulConfiguration:
         result = configurator.configure_model(config)
 
         assert result.model.SolarResource.solar_resource_file == str(weather_path)
+
+
+# -- Test: Monthly albedo from weather file --
+
+
+class TestMonthlyAlbedo:
+    """Test monthly albedo calculation from weather file."""
+
+    def test_albedo_set_from_weather_file(
+        self, configurator: ModelConfigurator, tmp_path: Path
+    ) -> None:
+        """Albedo is aggregated from hourly weather data to 12 monthly values."""
+        # Build a minimal PySAM-format weather file with 2 header rows
+        weather_file = tmp_path / "weather.csv"
+        header1 = "Station,City,State,Country,Latitude,Longitude,Time Zone,Elevation"
+        header2 = "id,city,state,country,33.45,-112.07,-7,331"
+
+        # Generate 8760 hourly rows with varying albedo by month
+        rows = []
+        for month in range(1, 13):
+            days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+            hours_in_month = days_in_month * 24
+            albedo_val = 0.15 + (month - 1) * 0.01  # 0.15 to 0.26
+            for h in range(hours_in_month):
+                day = h // 24 + 1
+                hour = h % 24
+                rows.append(f"2024,{month},{day},{hour},0,0,0,0,0,0,{albedo_val:.2f}")
+
+        col_header = "Year,Month,Day,Hour,DNI,DHI,GHI,Temperature,Wind Speed,Pressure,Surface Albedo"
+        content = f"{header1}\n{header2}\n{col_header}\n" + "\n".join(rows) + "\n"
+        weather_file.write_text(content)
+
+        config = _make_site_config(weather_file_path=weather_file)
+        result = configurator.configure_model(config)
+
+        # Verify 12 monthly albedo values set on model
+        albedo = list(result.model.SolarResource.albedo)
+        assert len(albedo) == 12
+
+        # January albedo should be ~0.15, December ~0.26
+        assert albedo[0] == pytest.approx(0.15, abs=0.001)
+        assert albedo[11] == pytest.approx(0.26, abs=0.001)
+
+        # All values should increase month over month
+        for i in range(11):
+            assert albedo[i] < albedo[i + 1]
+
+    def test_albedo_fallback_on_missing_file(
+        self, configurator: ModelConfigurator
+    ) -> None:
+        """When weather file can't be read, falls back to 0.2 for all months."""
+        config = _make_site_config(
+            weather_file_path=Path("/nonexistent/weather.csv")
+        )
+        result = configurator.configure_model(config)
+
+        albedo = list(result.model.SolarResource.albedo)
+        assert len(albedo) == 12
+        assert all(a == pytest.approx(0.2) for a in albedo)
 
 
 # -- Test: DC/AC ratio validation --

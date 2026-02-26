@@ -2,7 +2,9 @@
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import pandas as pd
 import PySAM.Pvsamv1 as pvsam
 
 from src.config.schema import SiteConfig
@@ -257,6 +259,43 @@ class ModelConfigurator:
     def _configure_weather_file(
         self, model: pvsam.Pvsamv1, site_config: SiteConfig
     ) -> None:
-        """Set the solar resource file path."""
+        """Set the solar resource file path and monthly albedo from weather data."""
         model.SolarResource.solar_resource_file = str(site_config.weather_file_path)
         logger.debug(f"Weather file set: {site_config.weather_file_path}")
+
+        # Calculate monthly albedo from hourly weather file data
+        monthly_albedo = self._calculate_monthly_albedo(site_config.weather_file_path)
+        model.SolarResource.albedo = monthly_albedo
+        logger.debug(f"Monthly albedo set: {[round(a, 4) for a in monthly_albedo]}")
+
+    @staticmethod
+    def _calculate_monthly_albedo(weather_file_path: Path) -> list[float]:
+        """Aggregate hourly surface albedo from weather file to 12 monthly averages.
+
+        Args:
+            weather_file_path: Path to PySAM-format weather CSV (2 header rows).
+
+        Returns:
+            List of 12 monthly average albedo values. Falls back to 0.2 for
+            any month with missing data.
+        """
+        default_albedo = 0.2
+        try:
+            df = pd.read_csv(weather_file_path, skiprows=2)
+            df["Month"] = pd.to_datetime(
+                df["Year"].astype(str) + "-" + df["Month"].astype(str) + "-" + df["Day"].astype(str),
+                format="%Y-%m-%d",
+            ).dt.month
+            monthly_albedo = [
+                df[df["Month"] == m]["Surface Albedo"].mean() for m in range(1, 13)
+            ]
+            # Replace NaN with default for months with no data
+            return [
+                a if pd.notna(a) else default_albedo for a in monthly_albedo
+            ]
+        except Exception as exc:
+            logger.warning(
+                f"Could not calculate monthly albedo from {weather_file_path}: {exc}. "
+                f"Using default {default_albedo} for all months."
+            )
+            return [default_albedo] * 12
