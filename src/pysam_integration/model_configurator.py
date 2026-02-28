@@ -202,6 +202,9 @@ class ModelConfigurator:
         model.SystemDesign.subarray1_azimuth = site_config.azimuth
         model.SystemDesign.subarray1_gcr = site_config.gcr
 
+        # Shading mode: 1 = standard (non-linear)
+        model.Shading.subarray1_shade_mode = 1
+
         # Bifaciality (on CEC module group)
         cec = model.CECPerformanceModelWithModuleDatabase
         if site_config.bifacial:
@@ -215,6 +218,9 @@ class ModelConfigurator:
         model.Layout.subarray1_mod_orient = (
             0 if site_config.module_orientation == "portrait" else 1
         )
+
+        # Terrain slope: flat ground default
+        model.SystemDesign.subarray1_slope_tilt = 0.0
 
         # Ground clearance (on CEC module group, tracker only)
         if site_config.racking == "tracker":

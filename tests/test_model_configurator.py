@@ -91,6 +91,12 @@ class TestSuccessfulConfiguration:
         # Tracking mode = 1 (tracker)
         assert result.model.SystemDesign.subarray1_track_mode == 1
 
+        # Shading mode set to standard (non-linear)
+        assert result.model.Shading.subarray1_shade_mode == 1
+
+        # Terrain slope set to flat
+        assert result.model.SystemDesign.subarray1_slope_tilt == 0.0
+
         # String sizing is populated (not stubbed zeros)
         assert result.model.SystemDesign.subarray1_nstrings > 0
         assert result.model.SystemDesign.subarray1_modules_per_string > 0
