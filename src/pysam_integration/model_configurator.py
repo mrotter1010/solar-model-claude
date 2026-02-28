@@ -263,6 +263,9 @@ class ModelConfigurator:
         model.Losses.subarray1_tracking_loss = 0.0
         model.Losses.subarray1_nameplate_loss = 0.0
 
+        # Monthly soiling losses (constant 5% MVP default)
+        model.Losses.subarray1_soiling = [5.0] * 12
+
     def _configure_weather_file(
         self, model: pvsam.Pvsamv1, site_config: SiteConfig
     ) -> None:

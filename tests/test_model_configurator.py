@@ -318,6 +318,11 @@ class TestLossParameters:
         # Mismatch
         assert result.model.Losses.subarray1_mismatch_loss == pytest.approx(1.2)
 
+        # Monthly soiling (12-element list, 5% default)
+        soiling = list(result.model.Losses.subarray1_soiling)
+        assert len(soiling) == 12
+        assert all(s == pytest.approx(5.0) for s in soiling)
+
 
 # -- Test: CEC database errors --
 
