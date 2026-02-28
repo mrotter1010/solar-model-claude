@@ -94,8 +94,9 @@ class TestSuccessfulConfiguration:
         # Shading mode set to standard (non-linear)
         assert result.model.Shading.subarray1_shade_mode == 1
 
-        # Terrain slope set to flat
+        # Terrain slope set to flat, south-facing
         assert result.model.SystemDesign.subarray1_slope_tilt == 0.0
+        assert result.model.SystemDesign.subarray1_slope_azm == 180.0
 
         # String sizing is populated (not stubbed zeros)
         assert result.model.SystemDesign.subarray1_nstrings > 0

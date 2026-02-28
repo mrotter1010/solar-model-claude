@@ -221,6 +221,7 @@ class ModelConfigurator:
 
         # Terrain slope: flat ground default
         model.SystemDesign.subarray1_slope_tilt = 0.0
+        model.SystemDesign.subarray1_slope_azm = 180.0  # South-facing
 
         # Ground clearance (on CEC module group, tracker only)
         if site_config.racking == "tracker":
