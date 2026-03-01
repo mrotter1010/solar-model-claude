@@ -91,6 +91,11 @@ class TestSuccessfulConfiguration:
         # Tracking mode = 1 (tracker)
         assert result.model.SystemDesign.subarray1_track_mode == 1
 
+        # Subarrays 2-4 disabled
+        assert result.model.SystemDesign.subarray2_enable == 0
+        assert result.model.SystemDesign.subarray3_enable == 0
+        assert result.model.SystemDesign.subarray4_enable == 0
+
         # Shading mode set to standard (non-linear)
         assert result.model.Shading.subarray1_shade_mode == 1
 
@@ -98,12 +103,18 @@ class TestSuccessfulConfiguration:
         assert result.model.SystemDesign.subarray1_slope_tilt == 0.0
         assert result.model.SystemDesign.subarray1_slope_azm == 180.0
 
+        # Module table width from CSV
+        assert result.model.Layout.subarray1_nmodx == site_config.number_of_modules
+
         # String sizing is populated (not stubbed zeros)
         assert result.model.SystemDesign.subarray1_nstrings > 0
         assert result.model.SystemDesign.subarray1_modules_per_string > 0
         assert result.string_config is not None
         assert result.string_config.nstrings == result.model.SystemDesign.subarray1_nstrings
         assert result.string_config.modules_per_string == result.model.SystemDesign.subarray1_modules_per_string
+
+        # Table length matches string length
+        assert result.model.Layout.subarray1_nmody == result.string_config.modules_per_string
 
     def test_configure_sets_weather_file(self, configurator: ModelConfigurator) -> None:
         """Verify weather file path is set when provided."""
@@ -211,6 +222,7 @@ class TestFixedRacking:
 
         assert result.model.SystemDesign.subarray1_track_mode == 0
         assert result.model.SystemDesign.subarray1_tilt == 25.0
+        assert result.model.SystemDesign.subarray1_backtrack == 0
 
 
 # -- Test: Tracker racking --
@@ -227,6 +239,7 @@ class TestTrackerRacking:
         assert result.model.SystemDesign.subarray1_track_mode == 1
         assert result.model.SystemDesign.subarray1_rotlim == 60.0
         assert result.model.SystemDesign.subarray1_tilt == 0
+        assert result.model.SystemDesign.subarray1_backtrack == 1
 
     def test_tracker_sets_ground_clearance(
         self, configurator: ModelConfigurator
@@ -315,13 +328,25 @@ class TestLossParameters:
         assert result.model.Losses.transformer_load_loss == pytest.approx(1.6)  # 2.0 * 0.8
         assert result.model.Losses.transformer_no_load_loss == pytest.approx(0.4)  # 2.0 * 0.2
 
-        # Mismatch
+        # Mismatch (general + bifacial-specific)
         assert result.model.Losses.subarray1_mismatch_loss == pytest.approx(1.2)
+        assert result.model.Losses.subarray1_electrical_mismatch == pytest.approx(1.2)
 
-        # Monthly soiling (12-element list, 5% default)
+        # Monthly soiling (12-element list, 5% front / 0.5% rear)
         soiling = list(result.model.Losses.subarray1_soiling)
         assert len(soiling) == 12
         assert all(s == pytest.approx(5.0) for s in soiling)
+
+        assert result.model.Losses.subarray1_rear_soiling_loss == pytest.approx(0.5)
+
+        # Rack self-shading (0% — handled by GCR)
+        assert result.model.Losses.subarray1_rack_shading == pytest.approx(0.0)
+
+        # DC optimizer loss (0% — no module-level optimizers)
+        assert result.model.Losses.dcoptimizer_loss == pytest.approx(0.0)
+
+        # Transmission loss (0% — POI on-site)
+        assert result.model.Losses.transmission_loss == pytest.approx(0.0)
 
 
 # -- Test: CEC database errors --

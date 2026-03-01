@@ -188,15 +188,22 @@ class ModelConfigurator:
         module_params: CECModuleParams,
     ) -> StringConfiguration:
         """Set array configuration — tracking, tilt, azimuth, GCR, bifaciality, strings."""
+        # Disable additional subarrays (we only use subarray1)
+        model.SystemDesign.subarray2_enable = 0
+        model.SystemDesign.subarray3_enable = 0
+        model.SystemDesign.subarray4_enable = 0
+
         # Tracking mode
         model.SystemDesign.subarray1_track_mode = site_config.tracking_mode
 
-        # Tilt / rotation limit
+        # Tilt / rotation limit / backtracking
         if site_config.racking == "tracker":
             model.SystemDesign.subarray1_tilt = 0
             model.SystemDesign.subarray1_rotlim = site_config.rotation_limit
+            model.SystemDesign.subarray1_backtrack = 1
         else:
             model.SystemDesign.subarray1_tilt = site_config.tilt
+            model.SystemDesign.subarray1_backtrack = 0
 
         # Azimuth and GCR
         model.SystemDesign.subarray1_azimuth = site_config.azimuth
@@ -223,6 +230,9 @@ class ModelConfigurator:
         model.SystemDesign.subarray1_slope_tilt = 0.0
         model.SystemDesign.subarray1_slope_azm = 180.0  # South-facing
 
+        # Number of modules along row width (table width)
+        model.Layout.subarray1_nmodx = site_config.number_of_modules
+
         # Ground clearance (on CEC module group, tracker only)
         if site_config.racking == "tracker":
             cec.cec_ground_clearance_height = site_config.ground_clearance_height_m
@@ -235,6 +245,9 @@ class ModelConfigurator:
         model.SystemDesign.subarray1_modules_per_string = (
             string_config.modules_per_string
         )
+
+        # Number of modules along row length (table length = string length)
+        model.Layout.subarray1_nmody = string_config.modules_per_string
 
         return string_config
 
@@ -259,12 +272,23 @@ class ModelConfigurator:
 
         # Module mismatch and LID
         model.Losses.subarray1_mismatch_loss = site_config.module_mismatch_percent
+        model.Losses.subarray1_electrical_mismatch = site_config.module_mismatch_percent
         model.Losses.subarray1_diodeconn_loss = 0.5  # Default
         model.Losses.subarray1_tracking_loss = 0.0
         model.Losses.subarray1_nameplate_loss = 0.0
 
         # Monthly soiling losses (constant 5% MVP default)
         model.Losses.subarray1_soiling = [5.0] * 12
+        model.Losses.subarray1_rear_soiling_loss = 0.5
+
+        # Rack self-shading (0% — already handled by GCR)
+        model.Losses.subarray1_rack_shading = 0.0
+
+        # DC optimizer loss (0% — not using module-level optimizers)
+        model.Losses.dcoptimizer_loss = 0.0
+
+        # Transmission loss (0% — POI assumed on-site)
+        model.Losses.transmission_loss = 0.0
 
     def _configure_weather_file(
         self, model: pvsam.Pvsamv1, site_config: SiteConfig
