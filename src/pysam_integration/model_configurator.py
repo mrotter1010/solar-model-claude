@@ -153,15 +153,36 @@ class ModelConfigurator:
     def _configure_module(
         self, model: pvsam.Pvsamv1, module_params: CECModuleParams
     ) -> None:
-        """Set module parameters on the PySAM model."""
-        model.Module.module_model = 1  # CEC Performance Model
+        """Set module parameters using the Simple Efficiency module model."""
+        model.Module.module_model = 0  # Simple Efficiency Module Model
 
-        cec = model.CECPerformanceModelWithModuleDatabase
-        cec.cec_area = module_params.area
-        cec.cec_v_mp_ref = module_params.vmp
-        cec.cec_i_mp_ref = module_params.imp
-        cec.cec_v_oc_ref = module_params.voc
-        cec.cec_i_sc_ref = module_params.isc
+        spe = model.SimpleEfficiencyModuleModel
+        spe.spe_area = module_params.area
+        spe.spe_vmp = module_params.vmp
+        spe.spe_voc = module_params.voc
+
+        # Efficiency at 5 irradiance levels (W/m²)
+        # Slight derating at low irradiance is realistic
+        eff = module_params.efficiency * 100  # Convert fraction to %
+        spe.spe_rad0 = 200.0
+        spe.spe_rad1 = 400.0
+        spe.spe_rad2 = 600.0
+        spe.spe_rad3 = 800.0
+        spe.spe_rad4 = 1000.0
+        spe.spe_eff0 = eff * 0.90
+        spe.spe_eff1 = eff * 0.95
+        spe.spe_eff2 = eff * 0.98
+        spe.spe_eff3 = eff * 0.99
+        spe.spe_eff4 = eff
+        spe.spe_reference = 4  # Reference at 1000 W/m²
+
+        # Thermal model defaults
+        spe.spe_temp_coeff = -0.35  # %/°C typical for crystalline Si
+        spe.spe_fd = 1.0  # Diffuse utilization factor
+        spe.spe_a = -3.56  # NOCT cell temp coefficient a
+        spe.spe_b = -0.075  # NOCT cell temp coefficient b
+        spe.spe_dT = 3.0  # Cell-to-module temperature delta
+        spe.spe_module_structure = 0  # Glass/Cell/Polymer Sheet
 
     def _configure_inverter(
         self,
@@ -169,15 +190,22 @@ class ModelConfigurator:
         inverter_params: CECInverterParams,
         inverter_count: int,
     ) -> None:
-        """Set inverter parameters on the PySAM model."""
-        model.Inverter.inverter_model = 0  # CEC Database
+        """Set inverter parameters using the CEC/Sandia model."""
+        model.Inverter.inverter_model = 0  # CEC Database (Sandia)
         model.Inverter.inv_snl_paco = inverter_params.paco
 
         inv_db = model.InverterCECDatabase
+        inv_db.inv_snl_paco = inverter_params.paco
         inv_db.inv_snl_pdco = inverter_params.pdco
         inv_db.inv_snl_vdco = inverter_params.vdco
         inv_db.inv_snl_pso = inverter_params.pso
         inv_db.inv_snl_vdcmax = inverter_params.vdcmax
+        inv_db.inv_snl_c0 = inverter_params.c0
+        inv_db.inv_snl_c1 = inverter_params.c1
+        inv_db.inv_snl_c2 = inverter_params.c2
+        inv_db.inv_snl_c3 = inverter_params.c3
+        inv_db.inv_snl_pnt = inverter_params.pnt
+        inv_db.inv_tdc_cec_db = [[1500, 52.8, 0]]
 
         model.SystemDesign.inverter_count = inverter_count
 
@@ -212,14 +240,16 @@ class ModelConfigurator:
         # Shading mode: 1 = standard (non-linear)
         model.Shading.subarray1_shade_mode = 1
 
-        # Bifaciality (on CEC module group)
-        cec = model.CECPerformanceModelWithModuleDatabase
+        # Bifaciality (on Simple Efficiency module group)
+        spe = model.SimpleEfficiencyModuleModel
         if site_config.bifacial:
-            cec.cec_is_bifacial = 1
-            cec.cec_bifaciality = 0.7
+            spe.spe_is_bifacial = 1
+            spe.spe_bifaciality = 0.7
+            spe.spe_bifacial_transmission_factor = 0.013
         else:
-            cec.cec_is_bifacial = 0
-            cec.cec_bifaciality = 0.0
+            spe.spe_is_bifacial = 0
+            spe.spe_bifaciality = 0.0
+            spe.spe_bifacial_transmission_factor = 0.0
 
         # Module orientation: 0=portrait, 1=landscape (on Layout group)
         model.Layout.subarray1_mod_orient = (
@@ -233,9 +263,9 @@ class ModelConfigurator:
         # Number of modules along row width (table width)
         model.Layout.subarray1_nmodx = site_config.number_of_modules
 
-        # Ground clearance (on CEC module group, tracker only)
+        # Ground clearance (on Simple Efficiency module group, tracker only)
         if site_config.racking == "tracker":
-            cec.cec_ground_clearance_height = site_config.ground_clearance_height_m
+            spe.spe_bifacial_ground_clearance_height = site_config.ground_clearance_height_m
 
         # String sizing
         string_config = self.string_calc.calculate_strings(

@@ -250,7 +250,7 @@ class TestTrackerRacking:
         )
         result = configurator.configure_model(config)
 
-        assert result.model.CECPerformanceModelWithModuleDatabase.cec_ground_clearance_height == 2.0
+        assert result.model.SimpleEfficiencyModuleModel.spe_bifacial_ground_clearance_height == 2.0
 
 
 # -- Test: Bifacial vs monofacial --
@@ -266,9 +266,9 @@ class TestBifaciality:
         config = _make_site_config(bifacial=True)
         result = configurator.configure_model(config)
 
-        cec = result.model.CECPerformanceModelWithModuleDatabase
-        assert cec.cec_bifaciality == pytest.approx(0.7)
-        assert cec.cec_is_bifacial == 1
+        spe = result.model.SimpleEfficiencyModuleModel
+        assert spe.spe_bifaciality == pytest.approx(0.7)
+        assert spe.spe_is_bifacial == 1
 
     def test_monofacial_module_sets_zero(
         self, configurator: ModelConfigurator
@@ -277,9 +277,9 @@ class TestBifaciality:
         config = _make_site_config(bifacial=False)
         result = configurator.configure_model(config)
 
-        cec = result.model.CECPerformanceModelWithModuleDatabase
-        assert cec.cec_bifaciality == pytest.approx(0.0)
-        assert cec.cec_is_bifacial == 0
+        spe = result.model.SimpleEfficiencyModuleModel
+        assert spe.spe_bifaciality == pytest.approx(0.0)
+        assert spe.spe_is_bifacial == 0
 
 
 # -- Test: Availability conversion --
@@ -494,7 +494,7 @@ class TestArtifactWriter:
             f"Tilt: {result.model.SystemDesign.subarray1_tilt}",
             f"Azimuth: {result.model.SystemDesign.subarray1_azimuth}",
             f"GCR: {result.model.SystemDesign.subarray1_gcr}",
-            f"Bifaciality: {result.model.CECPerformanceModelWithModuleDatabase.cec_bifaciality}",
+            f"Bifaciality: {result.model.SimpleEfficiencyModuleModel.spe_bifaciality}",
             f"Strings: {result.string_config.nstrings}",
             f"Modules/String: {result.string_config.modules_per_string}",
             f"Total Modules: {result.string_config.total_modules}",

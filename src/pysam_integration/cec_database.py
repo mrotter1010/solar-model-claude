@@ -201,6 +201,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 600.0,
         "Mppt_low": 80.0,
         "Mppt_high": 600.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "SMA America: SB7.7-1SP-US-40 240V": {
         "Paco": 7700.0,
@@ -210,6 +215,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 600.0,
         "Mppt_low": 80.0,
         "Mppt_high": 600.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Fronius USA: Primo 8.2-1 208-240": {
         "Paco": 8200.0,
@@ -219,6 +229,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 600.0,
         "Mppt_low": 80.0,
         "Mppt_high": 600.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "SolarEdge Technologies Inc: SE10000A-US (240V)": {
         "Paco": 10000.0,
@@ -228,6 +243,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 600.0,
         "Mppt_low": 300.0,
         "Mppt_high": 480.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Enphase Energy: IQ7PLUS-72-2-US": {
         "Paco": 295.0,
@@ -237,6 +257,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 60.0,
         "Mppt_low": 16.0,
         "Mppt_high": 60.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "ABB: PVS-100-TL-OUTD-US 480V": {
         "Paco": 100000.0,
@@ -246,6 +271,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1000.0,
         "Mppt_low": 570.0,
         "Mppt_high": 850.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "SMA America: Sunny Central 2500-EV-US (800V)": {
         "Paco": 2500000.0,
@@ -255,6 +285,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1100.0,
         "Mppt_low": 580.0,
         "Mppt_high": 850.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Power Electronics: FS3000E": {
         "Paco": 3000000.0,
@@ -264,6 +299,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1300.0,
         "Mppt_low": 480.0,
         "Mppt_high": 820.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "SMA America: SB3.8-1SP-US-40 240V": {
         "Paco": 3800.0,
@@ -273,6 +313,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 600.0,
         "Mppt_low": 80.0,
         "Mppt_high": 600.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "SolarEdge Technologies Inc: SE5000A-US (240V)": {
         "Paco": 5000.0,
@@ -282,6 +327,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 600.0,
         "Mppt_low": 300.0,
         "Mppt_high": 480.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Fronius USA: Symo 24.0-3 480": {
         "Paco": 24000.0,
@@ -291,6 +341,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1000.0,
         "Mppt_low": 420.0,
         "Mppt_high": 800.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "SMA America: SB6.0-1SP-US-40 240V": {
         "Paco": 6000.0,
@@ -300,6 +355,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 600.0,
         "Mppt_low": 80.0,
         "Mppt_high": 600.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Chint Power Systems: CPS SCH50KTL-DO-US-400": {
         "Paco": 50000.0,
@@ -309,6 +369,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1000.0,
         "Mppt_low": 200.0,
         "Mppt_high": 900.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Schneider Electric: Conext CL25000E-US": {
         "Paco": 25000.0,
@@ -318,6 +383,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1000.0,
         "Mppt_low": 300.0,
         "Mppt_high": 800.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Huawei Technologies Co.: SUN2000-100KTL-M1": {
         "Paco": 110000.0,
@@ -327,6 +397,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1100.0,
         "Mppt_low": 200.0,
         "Mppt_high": 1000.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Delta Products Corporation: M50A": {
         "Paco": 50000.0,
@@ -336,6 +411,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1000.0,
         "Mppt_low": 330.0,
         "Mppt_high": 800.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Sungrow Power Supply: SG110CX": {
         "Paco": 110000.0,
@@ -345,6 +425,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1100.0,
         "Mppt_low": 520.0,
         "Mppt_high": 1000.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "GoodWe USA: GW30K-DT": {
         "Paco": 30000.0,
@@ -354,6 +439,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1000.0,
         "Mppt_low": 180.0,
         "Mppt_high": 850.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Ginlong Technologies: Solis-75K-EV": {
         "Paco": 75000.0,
@@ -363,6 +453,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1100.0,
         "Mppt_low": 200.0,
         "Mppt_high": 1000.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
     "Sungrow Power Supply: SG250HX": {
         "Paco": 250000.0,
@@ -372,6 +467,11 @@ CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
         "Vdcmax": 1500.0,
         "Mppt_low": 500.0,
         "Mppt_high": 1300.0,
+        "C0": -0.000005,
+        "C1": -0.000025,
+        "C2": 0.001,
+        "C3": -0.0002,
+        "Pnt": 10.0,
     },
 }
 
@@ -408,6 +508,18 @@ class CECInverterParams:
     vdcmax: float  # Max DC voltage (V)
     mppt_low: float  # Min MPPT voltage (V)
     mppt_high: float  # Max MPPT voltage (V)
+    c0: float  # Sandia coefficient: Paco correction for DC power
+    c1: float  # Sandia coefficient: Pso correction for DC voltage
+    c2: float  # Sandia coefficient: Paco correction for DC voltage
+    c3: float  # Sandia coefficient: Pso correction for DC voltage
+    pnt: float  # Night tare loss (W)
+
+    @property
+    def efficiency(self) -> float:
+        """Calculate inverter CEC efficiency as percentage (Paco/Pdco * 100)."""
+        if self.pdco:
+            return (self.paco / self.pdco) * 100
+        return 96.0
 
 
 class CECDatabase:
@@ -484,6 +596,11 @@ class CECDatabase:
             vdcmax=data["Vdcmax"],
             mppt_low=data["Mppt_low"],
             mppt_high=data["Mppt_high"],
+            c0=data["C0"],
+            c1=data["C1"],
+            c2=data["C2"],
+            c3=data["C3"],
+            pnt=data["Pnt"],
         )
 
     def list_modules(self, search_term: Optional[str] = None) -> list[str]:
