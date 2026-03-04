@@ -52,7 +52,7 @@ class WeatherFormatter:
         lat: float,
         lon: float,
         precipitation: pd.Series | None = None,
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, dict[str, float]]:
         """Parse NSRDB CSV and format for PySAM consumption.
 
         NSRDB CSVs have a 2-row metadata header (source info + units) before
@@ -66,12 +66,16 @@ class WeatherFormatter:
                 If provided and length matches, replaces the default zeros.
 
         Returns:
-            DataFrame with PySAM-compatible columns including Precipitation.
+            Tuple of (DataFrame with PySAM-compatible columns, metadata dict
+            with 'time_zone' and 'elevation' from NSRDB header).
 
         Raises:
             ClimateDataError: If required columns are missing from the data.
         """
         logger.info(f"Formatting NSRDB data for PySAM: ({lat}, {lon})")
+
+        # Extract metadata from NSRDB header (row 0 = field names, row 1 = values)
+        metadata = self._extract_nsrdb_metadata(nsrdb_csv)
 
         # Skip 2-row metadata header
         df = pd.read_csv(StringIO(nsrdb_csv), skiprows=2)
@@ -109,12 +113,49 @@ class WeatherFormatter:
             result["Precipitation"] = 0
 
         logger.info(
-            f"Formatted {len(result)} rows for PySAM from ({lat}, {lon})"
+            f"Formatted {len(result)} rows for PySAM from ({lat}, {lon}), "
+            f"tz={metadata.get('time_zone', 0)}, elev={metadata.get('elevation', 0)}"
         )
-        return result
+        return result, metadata
+
+    @staticmethod
+    def _extract_nsrdb_metadata(nsrdb_csv: str) -> dict[str, float]:
+        """Extract timezone and elevation from NSRDB CSV header.
+
+        Args:
+            nsrdb_csv: Raw CSV string with 2-row metadata header.
+
+        Returns:
+            Dict with 'time_zone' and 'elevation' values.
+        """
+        try:
+            header_df = pd.read_csv(StringIO(nsrdb_csv), nrows=1)
+            metadata: dict[str, float] = {}
+
+            if "Time Zone" in header_df.columns:
+                metadata["time_zone"] = float(header_df["Time Zone"].iloc[0])
+            elif "Local Time Zone" in header_df.columns:
+                metadata["time_zone"] = float(header_df["Local Time Zone"].iloc[0])
+            else:
+                metadata["time_zone"] = 0
+
+            if "Elevation" in header_df.columns:
+                metadata["elevation"] = float(header_df["Elevation"].iloc[0])
+            else:
+                metadata["elevation"] = 0
+
+            return metadata
+        except Exception as exc:
+            logger.warning(f"Could not extract NSRDB metadata: {exc}")
+            return {"time_zone": 0, "elevation": 0}
 
     def save_to_csv(
-        self, df: pd.DataFrame, filepath: Path, lat: float, lon: float
+        self,
+        df: pd.DataFrame,
+        filepath: Path,
+        lat: float,
+        lon: float,
+        metadata: dict[str, float] | None = None,
     ) -> None:
         """Save formatted weather data with PySAM-compatible header.
 
@@ -123,17 +164,20 @@ class WeatherFormatter:
             filepath: Output file path.
             lat: Site latitude for header metadata.
             lon: Site longitude for header metadata.
+            metadata: Dict with 'time_zone' and 'elevation' from NSRDB header.
         """
         filepath.parent.mkdir(parents=True, exist_ok=True)
 
+        tz = metadata.get("time_zone", 0) if metadata else 0
+        elev = metadata.get("elevation", 0) if metadata else 0
+
         # PySAM expects a metadata header row before column names
-        header_line = f"Latitude,Longitude,Time Zone,Elevation"
-        # Use placeholder values for timezone and elevation
-        values_line = f"{lat},{lon},0,0"
+        header_line = "Latitude,Longitude,Time Zone,Elevation"
+        values_line = f"{lat},{lon},{int(tz)},{int(elev)}"
 
         with filepath.open("w") as f:
             f.write(header_line + "\n")
             f.write(values_line + "\n")
             df.to_csv(f, index=False)
 
-        logger.info(f"Saved PySAM weather file: {filepath}")
+        logger.info(f"Saved PySAM weather file: {filepath} (tz={int(tz)}, elev={int(elev)})")

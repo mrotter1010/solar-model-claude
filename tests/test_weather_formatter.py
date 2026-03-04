@@ -35,7 +35,7 @@ class TestFormatForPysam:
     def test_skips_metadata_rows(self) -> None:
         """Parser skips the 2-row NSRDB metadata header correctly."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         # Should have 5 data rows (not metadata rows)
         assert len(df) == 5
@@ -47,7 +47,7 @@ class TestFormatForPysam:
     def test_required_columns_present(self) -> None:
         """Output DataFrame contains all required PySAM columns."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         for col in REQUIRED_COLUMNS:
             assert col in df.columns, f"Missing required column: {col}"
@@ -55,7 +55,7 @@ class TestFormatForPysam:
     def test_precipitation_column_added(self) -> None:
         """Precipitation column is added as all zeros."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         assert "Precipitation" in df.columns
         assert (df["Precipitation"] == 0).all()
@@ -63,7 +63,7 @@ class TestFormatForPysam:
     def test_data_values_preserved(self) -> None:
         """Original NSRDB data values are preserved in the output."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         # Check a midday row with non-zero irradiance
         noon_row = df[df["Hour"] == 12].iloc[0]
@@ -89,7 +89,7 @@ class TestFormatForPysam:
     def test_dataframe_column_order(self) -> None:
         """Output columns follow expected PySAM order with Precipitation last."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         columns = list(df.columns)
         # Precipitation should be last (added column)
@@ -104,7 +104,7 @@ class TestSaveToCsv:
     def test_save_creates_file(self, tmp_path: Path) -> None:
         """Saves a CSV file at the specified path."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         filepath = tmp_path / "weather.csv"
         formatter.save_to_csv(df, filepath, lat=33.45, lon=-111.98)
@@ -114,7 +114,7 @@ class TestSaveToCsv:
     def test_save_includes_header(self, tmp_path: Path) -> None:
         """Output CSV includes PySAM metadata header rows."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         filepath = tmp_path / "weather.csv"
         formatter.save_to_csv(df, filepath, lat=33.45, lon=-111.98)
@@ -132,7 +132,7 @@ class TestSaveToCsv:
     def test_save_creates_parent_dirs(self, tmp_path: Path) -> None:
         """Creates parent directories if they don't exist."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98)
 
         filepath = tmp_path / "nested" / "dir" / "weather.csv"
         formatter.save_to_csv(df, filepath, lat=33.45, lon=-111.98)
@@ -142,7 +142,7 @@ class TestSaveToCsv:
     def test_save_roundtrip(self, tmp_path: Path, test_results_dir: Path) -> None:
         """Saved CSV can be read back and matches original DataFrame."""
         formatter = WeatherFormatter()
-        df_original = formatter.format_for_pysam(
+        df_original, _ = formatter.format_for_pysam(
             SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98
         )
 
@@ -183,7 +183,7 @@ class TestPrecipitationParam:
         formatter = WeatherFormatter()
         precip = pd.Series([0.5, 1.2, 0.0, 3.1, 0.8])
 
-        df = formatter.format_for_pysam(
+        df, _ = formatter.format_for_pysam(
             SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98, precipitation=precip
         )
 
@@ -195,7 +195,7 @@ class TestPrecipitationParam:
     def test_precipitation_none_uses_zeros(self) -> None:
         """Passing None (default) produces all-zero Precipitation column."""
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(
+        df, _ = formatter.format_for_pysam(
             SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98, precipitation=None
         )
 
@@ -208,7 +208,7 @@ class TestPrecipitationParam:
         # CSV has 5 rows, provide 3-element Series
         precip = pd.Series([1.0, 2.0, 3.0])
 
-        df = formatter.format_for_pysam(
+        df, _ = formatter.format_for_pysam(
             SAMPLE_NSRDB_CSV, lat=33.45, lon=-111.98, precipitation=precip
         )
 
@@ -224,14 +224,14 @@ class TestFullYearRowCounts:
         csv_data = generate_mock_nsrdb_csv(year=2023, num_hours=8760)
 
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(csv_data, lat=33.45, lon=-111.98)
+        df, metadata = formatter.format_for_pysam(csv_data, lat=33.45, lon=-111.98)
 
         assert len(df) == 8760
 
         # Save sample for inspection
         output_path = climate_results_dir / "sample_pysam_weather.csv"
         formatter.save_to_csv(
-            df, output_path, lat=33.45, lon=-111.98
+            df, output_path, lat=33.45, lon=-111.98, metadata=metadata
         )
 
     def test_leap_year_8784_rows(self) -> None:
@@ -239,7 +239,7 @@ class TestFullYearRowCounts:
         csv_data = generate_mock_nsrdb_csv(year=2024, num_hours=8784)
 
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(csv_data, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(csv_data, lat=33.45, lon=-111.98)
 
         assert len(df) == 8784
 
@@ -254,7 +254,7 @@ class TestFullYearRowCounts:
         )
 
         formatter = WeatherFormatter()
-        df = formatter.format_for_pysam(csv_with_header_only, lat=33.45, lon=-111.98)
+        df, _ = formatter.format_for_pysam(csv_with_header_only, lat=33.45, lon=-111.98)
 
         assert len(df) == 0
         # Columns should still be present even with no data

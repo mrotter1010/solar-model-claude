@@ -29,13 +29,23 @@ class StringCalculator:
     """Calculates string sizing from DC capacity and module wattage."""
 
     def calculate_strings(
-        self, dc_size_mw: float, module_wattage: float
+        self,
+        dc_size_mw: float,
+        module_wattage: float,
+        module_vmp: float | None = None,
+        inverter_vdco: float | None = None,
     ) -> StringConfiguration:
         """Calculate optimal string configuration.
+
+        When module_vmp and inverter_vdco are provided, modules_per_string is
+        targeted at ~80% of the inverter's nominal DC voltage to maximize
+        inverter efficiency.
 
         Args:
             dc_size_mw: Target DC system size in MW.
             module_wattage: Module power rating in watts (Pmax).
+            module_vmp: Module voltage at max power (Vmp) in volts.
+            inverter_vdco: Inverter nominal DC voltage (Vdco) in volts.
 
         Returns:
             StringConfiguration with the best valid configuration.
@@ -43,9 +53,24 @@ class StringCalculator:
         Raises:
             StringCalculationError: If no valid configuration found.
         """
+        # Calculate target modules_per_string from inverter voltage
+        target_mps = None
+        if module_vmp is not None and inverter_vdco is not None:
+            target_voltage = inverter_vdco * 0.8
+            target_mps = round(target_voltage / module_vmp)
+            target_mps = max(MIN_MODULES_PER_STRING, min(target_mps, MAX_MODULES_PER_STRING))
+            logger.debug(
+                f"Voltage-based string sizing: target={target_voltage:.0f}V "
+                f"({inverter_vdco:.0f}V × 0.8), "
+                f"modules_per_string={target_mps} "
+                f"(string Vmp={target_mps * module_vmp:.0f}V)"
+            )
+
         total_modules = self._calculate_total_modules(dc_size_mw, module_wattage)
 
-        config = self._find_best_configuration(dc_size_mw, module_wattage)
+        config = self._find_best_configuration(
+            dc_size_mw, module_wattage, target_mps=target_mps
+        )
         if config is None:
             raise StringCalculationError(dc_size_mw, module_wattage, total_modules)
 
@@ -122,26 +147,40 @@ class StringCalculator:
         )
 
     def _find_best_configuration(
-        self, dc_size_mw: float, module_wattage: float
+        self,
+        dc_size_mw: float,
+        module_wattage: float,
+        target_mps: int | None = None,
     ) -> StringConfiguration | None:
         """Find the best string configuration within constraints.
 
-        Tries all modules-per-string values from 10-40. If the initial total
-        module count doesn't divide evenly, adjusts ±5% and picks the config
-        with the smallest deviation from target DC size.
+        When target_mps is provided (from inverter voltage sizing), searches
+        target_mps ± 5 first. Falls back to full 10-40 range if needed.
+        If the initial total module count doesn't divide evenly, adjusts ±5%
+        and picks the config with the smallest deviation from target DC size.
 
         Args:
             dc_size_mw: Target DC size in MW.
             module_wattage: Module Pmax in watts.
+            target_mps: Preferred modules_per_string from voltage sizing.
 
         Returns:
             Best StringConfiguration, or None if no valid config found.
         """
         base_total = self._calculate_total_modules(dc_size_mw, module_wattage)
+
+        # Build search range: prefer near target_mps if provided
+        if target_mps is not None:
+            mps_low = max(MIN_MODULES_PER_STRING, target_mps - 5)
+            mps_high = min(MAX_MODULES_PER_STRING, target_mps + 5)
+            mps_range = list(range(mps_low, mps_high + 1))
+        else:
+            mps_range = list(range(MIN_MODULES_PER_STRING, MAX_MODULES_PER_STRING + 1))
+
         candidates: list[StringConfiguration] = []
 
         # Try the base total first
-        for mps in range(MIN_MODULES_PER_STRING, MAX_MODULES_PER_STRING + 1):
+        for mps in mps_range:
             config = self._try_configuration(
                 base_total, mps, module_wattage, dc_size_mw
             )
@@ -155,12 +194,34 @@ class StringCalculator:
             for total in range(lower, upper):
                 if total == base_total:
                     continue
-                for mps in range(MIN_MODULES_PER_STRING, MAX_MODULES_PER_STRING + 1):
+                for mps in mps_range:
                     config = self._try_configuration(
                         total, mps, module_wattage, dc_size_mw
                     )
                     if config is not None and config.deviation_pct <= MAX_DEVIATION_PCT:
                         candidates.append(config)
+
+        # If target range found nothing, fall back to full range
+        if not candidates and target_mps is not None:
+            full_range = list(range(MIN_MODULES_PER_STRING, MAX_MODULES_PER_STRING + 1))
+            for mps in full_range:
+                config = self._try_configuration(
+                    base_total, mps, module_wattage, dc_size_mw
+                )
+                if config is not None and config.deviation_pct <= MAX_DEVIATION_PCT:
+                    candidates.append(config)
+            if not candidates:
+                lower = int(base_total * 0.95)
+                upper = int(base_total * 1.05) + 1
+                for total in range(lower, upper):
+                    if total == base_total:
+                        continue
+                    for mps in full_range:
+                        config = self._try_configuration(
+                            total, mps, module_wattage, dc_size_mw
+                        )
+                        if config is not None and config.deviation_pct <= MAX_DEVIATION_PCT:
+                            candidates.append(config)
 
         if not candidates:
             return None

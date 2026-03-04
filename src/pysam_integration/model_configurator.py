@@ -77,18 +77,47 @@ class ModelConfigurator:
         self._configure_module(model, module_params)
         self._configure_inverter(model, inverter_params, inverter_count)
         string_config = self._configure_array(
-            model, site_config, module_params
+            model, site_config, module_params, inverter_params
         )
         self._configure_losses(model, site_config)
 
         if site_config.weather_file_path is not None:
             self._configure_weather_file(model, site_config)
 
+        # Debug: log all critical PySAM parameters for diagnostics
+        sd = model.SystemDesign
         logger.info(
             f"PySAM model configured: DC/AC={dc_ac_ratio:.2f}, "
             f"inverters={inverter_count}, "
             f"capacity={site_config.system_capacity_kw:.1f} kW, "
             f"strings={string_config.nstrings}×{string_config.modules_per_string}"
+        )
+        rotlim = sd.subarray1_rotlim if site_config.racking == "tracker" else "N/A"
+        logger.info(
+            f"  SystemDesign: system_capacity={sd.system_capacity}, "
+            f"track_mode={sd.subarray1_track_mode}, "
+            f"tilt={sd.subarray1_tilt}, "
+            f"azimuth={sd.subarray1_azimuth}, "
+            f"rotlim={rotlim}, "
+            f"gcr={sd.subarray1_gcr}"
+        )
+        logger.info(
+            f"  Array: modules_per_string={sd.subarray1_modules_per_string}, "
+            f"nstrings={sd.subarray1_nstrings}, "
+            f"inverter_count={sd.inverter_count}, "
+            f"backtrack={sd.subarray1_backtrack}"
+        )
+        logger.info(
+            f"  Module: model={model.Module.module_model}, "
+            f"area={model.SimpleEfficiencyModuleModel.spe_area}, "
+            f"eff={model.SimpleEfficiencyModuleModel.spe_eff4:.2f}%, "
+            f"vmp={model.SimpleEfficiencyModuleModel.spe_vmp}"
+        )
+        logger.info(
+            f"  Inverter: model={model.Inverter.inverter_model}, "
+            f"paco={model.Inverter.inv_snl_paco}, "
+            f"vdco={model.InverterCECDatabase.inv_snl_vdco}, "
+            f"vdcmax={model.InverterCECDatabase.inv_snl_vdcmax}"
         )
 
         return PySAMModelConfig(
@@ -190,9 +219,14 @@ class ModelConfigurator:
         inverter_params: CECInverterParams,
         inverter_count: int,
     ) -> None:
-        """Set inverter parameters using the CEC/Sandia model."""
+        """Set inverter parameters using the CEC/Sandia model.
+
+        PySAM's Inverter.inv_snl_paco is the total system AC power limit,
+        while InverterCECDatabase params describe a single inverter for the
+        Sandia efficiency model. inverter_count scales the single-inverter
+        output to system level.
+        """
         model.Inverter.inverter_model = 0  # CEC Database (Sandia)
-        model.Inverter.inv_snl_paco = inverter_params.paco
 
         inv_db = model.InverterCECDatabase
         inv_db.inv_snl_paco = inverter_params.paco
@@ -207,6 +241,8 @@ class ModelConfigurator:
         inv_db.inv_snl_pnt = inverter_params.pnt
         inv_db.inv_tdc_cec_db = [[1500, 52.8, 0]]
 
+        # Set total system AC limit AFTER InverterCECDatabase (PySAM links them)
+        model.Inverter.inv_snl_paco = inverter_params.paco * inverter_count
         model.SystemDesign.inverter_count = inverter_count
 
     def _configure_array(
@@ -214,6 +250,7 @@ class ModelConfigurator:
         model: pvsam.Pvsamv1,
         site_config: SiteConfig,
         module_params: CECModuleParams,
+        inverter_params: CECInverterParams | None = None,
     ) -> StringConfiguration:
         """Set array configuration — tracking, tilt, azimuth, GCR, bifaciality, strings."""
         # Disable additional subarrays (we only use subarray1)
@@ -267,9 +304,12 @@ class ModelConfigurator:
         if site_config.racking == "tracker":
             spe.spe_bifacial_ground_clearance_height = site_config.ground_clearance_height_m
 
-        # String sizing
+        # String sizing (voltage-aware: target ~80% of inverter Vdco)
         string_config = self.string_calc.calculate_strings(
-            site_config.dc_size_mw, module_params.pmax
+            site_config.dc_size_mw,
+            module_params.pmax,
+            module_vmp=module_params.vmp,
+            inverter_vdco=inverter_params.vdco if inverter_params else None,
         )
         model.SystemDesign.subarray1_nstrings = string_config.nstrings
         model.SystemDesign.subarray1_modules_per_string = (

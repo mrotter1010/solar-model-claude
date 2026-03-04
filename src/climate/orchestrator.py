@@ -101,11 +101,11 @@ class ClimateOrchestrator:
                     )
 
             # Format and save PySAM-compatible file alongside cache
-            df = self.formatter.format_for_pysam(
+            df, metadata = self.formatter.format_for_pysam(
                 raw_csv, lat, lon, precipitation=precipitation
             )
             pysam_path = cache_path.with_suffix(".pysam.csv")
-            self.formatter.save_to_csv(df, pysam_path, lat, lon)
+            self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
 
             results[(lat, lon)] = cache_path
 
@@ -170,9 +170,9 @@ class ClimateOrchestrator:
                     cache_path = self.cache_manager.save_weather_data(
                         lat, lon, raw_csv
                     )
-                    df = self.formatter.format_for_pysam(raw_csv, lat, lon)
+                    df, metadata = self.formatter.format_for_pysam(raw_csv, lat, lon)
                     pysam_path = cache_path.with_suffix(".pysam.csv")
-                    self.formatter.save_to_csv(df, pysam_path, lat, lon)
+                    self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
                     logger.info(
                         f"Retry successful for ({lat}, {lon}) on attempt {attempt + 1}"
                     )
