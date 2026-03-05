@@ -1,0 +1,1 @@
+"""matplotlib chart generation."""
