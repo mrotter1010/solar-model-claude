@@ -16,6 +16,13 @@ from src.pysam_integration.model_configurator import ModelConfigurator, PySAMMod
 
 # -- Fixtures --
 
+# CEC CSV inverter: Paco = 226997 W (~227 kW)
+DEFAULT_INVERTER = "Sungrow Power Supply Co - Ltd : SG250HX-US [800V]"
+DEFAULT_INVERTER_PACO = 226997.0
+
+# CEC CSV module
+DEFAULT_MODULE = "CSI Solar Co. Ltd. CS3U-355P"
+
 
 def _make_site_config(**overrides: object) -> SiteConfig:
     """Create a SiteConfig with sensible defaults, overridable per test."""
@@ -34,9 +41,9 @@ def _make_site_config(**overrides: object) -> SiteConfig:
         "module_orientation": "portrait",
         "number_of_modules": 1,
         "ground_clearance_height_m": 1.5,
-        "panel_model": "Canadian Solar CS3U-355P",
+        "panel_model": DEFAULT_MODULE,
         "bifacial": True,
-        "inverter_model": "SMA America: Sunny Central 2500-EV-US (800V)",
+        "inverter_model": DEFAULT_INVERTER,
         "gcr": 0.35,
         "shading_percent": 3.0,
         "dc_wiring_loss_percent": 2.0,
@@ -78,8 +85,8 @@ class TestSuccessfulConfiguration:
         # Returns correct type with expected metadata
         assert isinstance(result, PySAMModelConfig)
         assert result.site_config is site_config
-        assert result.module_params.name == "Canadian Solar CS3U-355P"
-        assert result.inverter_params.name == "SMA America: Sunny Central 2500-EV-US (800V)"
+        assert result.module_params.name == DEFAULT_MODULE
+        assert result.inverter_params.name == DEFAULT_INVERTER
 
         # DC/AC ratio calculated correctly
         expected_ratio = 100.0 / 80.0
@@ -244,13 +251,13 @@ class TestTrackerRacking:
     def test_tracker_sets_ground_clearance(
         self, configurator: ModelConfigurator
     ) -> None:
-        """Tracker should set ground clearance height."""
+        """Tracker should set ground clearance height on CEC module model."""
         config = _make_site_config(
             racking="tracker", ground_clearance_height_m=2.0
         )
         result = configurator.configure_model(config)
 
-        assert result.model.SimpleEfficiencyModuleModel.spe_bifacial_ground_clearance_height == 2.0
+        assert result.model.CECPerformanceModelWithModuleDatabase.cec_bifacial_ground_clearance_height == 2.0
 
 
 # -- Test: Bifacial vs monofacial --
@@ -266,9 +273,9 @@ class TestBifaciality:
         config = _make_site_config(bifacial=True)
         result = configurator.configure_model(config)
 
-        spe = result.model.SimpleEfficiencyModuleModel
-        assert spe.spe_bifaciality == pytest.approx(0.7)
-        assert spe.spe_is_bifacial == 1
+        cec = result.model.CECPerformanceModelWithModuleDatabase
+        assert cec.cec_bifaciality == pytest.approx(0.7)
+        assert cec.cec_is_bifacial == 1
 
     def test_monofacial_module_sets_zero(
         self, configurator: ModelConfigurator
@@ -277,31 +284,31 @@ class TestBifaciality:
         config = _make_site_config(bifacial=False)
         result = configurator.configure_model(config)
 
-        spe = result.model.SimpleEfficiencyModuleModel
-        assert spe.spe_bifaciality == pytest.approx(0.0)
-        assert spe.spe_is_bifacial == 0
+        cec = result.model.CECPerformanceModelWithModuleDatabase
+        assert cec.cec_bifaciality == pytest.approx(0.0)
+        assert cec.cec_is_bifacial == 0
 
 
 # -- Test: Availability conversion --
 
 
 class TestAvailabilityConversion:
-    """Test CSV downtime % → PySAM availability % conversion."""
+    """Test CSV downtime % → PySAM adjust_constant (percent reduction)."""
 
     def test_availability_conversion(self, configurator: ModelConfigurator) -> None:
-        """CSV availability_percent=2.0 (downtime) → PySAM adjust_constant=98.0."""
+        """CSV availability_percent=2.0 (downtime) → PySAM adjust_constant=2.0 (reduce by 2%)."""
         config = _make_site_config(availability_percent=2.0)
         result = configurator.configure_model(config)
 
-        # PySAM availability = 100 - downtime
-        assert result.model.AdjustmentFactors.adjust_constant == pytest.approx(98.0)
+        # PySAM adjust_constant is percent reduction, same as downtime %
+        assert result.model.AdjustmentFactors.adjust_constant == pytest.approx(2.0)
 
     def test_zero_downtime(self, configurator: ModelConfigurator) -> None:
-        """Zero downtime → 100% availability."""
+        """Zero downtime → no reduction."""
         config = _make_site_config(availability_percent=0.0)
         result = configurator.configure_model(config)
 
-        assert result.model.AdjustmentFactors.adjust_constant == pytest.approx(100.0)
+        assert result.model.AdjustmentFactors.adjust_constant == pytest.approx(0.0)
 
 
 # -- Test: Loss parameters --
@@ -328,9 +335,9 @@ class TestLossParameters:
         assert result.model.Losses.transformer_load_loss == pytest.approx(1.6)  # 2.0 * 0.8
         assert result.model.Losses.transformer_no_load_loss == pytest.approx(0.4)  # 2.0 * 0.2
 
-        # Mismatch (general + bifacial-specific)
+        # Mismatch (only subarray1_mismatch_loss; electrical_mismatch=0 to avoid double-counting)
         assert result.model.Losses.subarray1_mismatch_loss == pytest.approx(1.2)
-        assert result.model.Losses.subarray1_electrical_mismatch == pytest.approx(1.2)
+        assert result.model.Losses.subarray1_electrical_mismatch == pytest.approx(0.0)
 
         # Monthly soiling (12-element list, 5% front / 0.5% rear)
         soiling = list(result.model.Losses.subarray1_soiling)
@@ -376,31 +383,31 @@ class TestCECDatabaseErrors:
 class TestInverterCount:
     """Test inverter count is ceiling-rounded correctly."""
 
-    def test_inverter_count_exact_division(
+    def test_inverter_count_calculation(
         self, configurator: ModelConfigurator
     ) -> None:
-        """When AC capacity divides evenly by Paco, count is exact."""
-        # SMA Sunny Central 2500: Paco = 2,500,000 W
-        # ac_installed_mw = 5.0 → 5,000,000 W / 2,500,000 = 2 inverters
+        """Inverter count is ceiling-rounded from AC capacity / Paco."""
+        # SG250HX: Paco = 226997 W (~227 kW)
+        # ac_installed_mw = 5.0 → 5,000,000 W / 226997 = 22.03 → 23 inverters
         config = _make_site_config(
             dc_size_mw=7.5,
             ac_installed_mw=5.0,
         )
         result = configurator.configure_model(config)
-        assert result.inverter_count == 2
+        expected = math.ceil(5_000_000 / DEFAULT_INVERTER_PACO)
+        assert result.inverter_count == expected
 
     def test_inverter_count_ceil_rounding(
         self, configurator: ModelConfigurator
     ) -> None:
         """When AC capacity doesn't divide evenly, count is ceiling-rounded."""
-        # ac_installed_mw = 6.0 → 6,000,000 W / 2,500,000 = 2.4 → 3
         config = _make_site_config(
             dc_size_mw=9.0,
             ac_installed_mw=6.0,
         )
         result = configurator.configure_model(config)
-        assert result.inverter_count == math.ceil(6_000_000 / 2_500_000)
-        assert result.inverter_count == 3
+        expected = math.ceil(6_000_000 / DEFAULT_INVERTER_PACO)
+        assert result.inverter_count == expected
 
 
 # -- Test: Module orientation --
@@ -455,6 +462,38 @@ class TestStringConfigIntegration:
         assert result_small.string_config.total_modules < result_large.string_config.total_modules
 
 
+# -- Test: CEC module model --
+
+
+class TestCECModuleModel:
+    """Test that the CEC Performance Model is configured correctly."""
+
+    def test_module_model_is_cec(
+        self, configurator: ModelConfigurator, site_config: SiteConfig
+    ) -> None:
+        """Module model should be 1 (CEC Performance Model with Module Database)."""
+        result = configurator.configure_model(site_config)
+        assert result.model.Module.module_model == 1
+
+    def test_cec_params_set(
+        self, configurator: ModelConfigurator, site_config: SiteConfig
+    ) -> None:
+        """CEC five-parameter model fields should be set from database."""
+        result = configurator.configure_model(site_config)
+        cec = result.model.CECPerformanceModelWithModuleDatabase
+
+        assert cec.cec_area > 0
+        assert cec.cec_n_s > 0
+        assert cec.cec_v_mp_ref > 0
+        assert cec.cec_i_mp_ref > 0
+        assert cec.cec_v_oc_ref > 0
+        assert cec.cec_i_sc_ref > 0
+        assert cec.cec_a_ref > 0
+        assert cec.cec_i_l_ref > 0
+        assert cec.cec_r_s > 0
+        assert cec.cec_r_sh_ref > 0
+
+
 # -- Artifact writer --
 
 
@@ -470,6 +509,7 @@ class TestArtifactWriter:
         output_dir = Path("outputs/test_results")
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        cec = result.model.CECPerformanceModelWithModuleDatabase
         output_path = output_dir / "model_config_test.txt"
         lines = [
             "=== PySAM Model Configuration Test Results ===",
@@ -480,10 +520,12 @@ class TestArtifactWriter:
             f"DC/AC Ratio: {result.dc_ac_ratio:.3f}",
             f"Inverter Count: {result.inverter_count}",
             "",
-            "--- Module ---",
+            "--- Module (CEC Performance Model) ---",
             f"Name: {result.module_params.name}",
             f"Pmax: {result.module_params.pmax} W",
             f"Efficiency: {result.module_params.efficiency:.3f}",
+            f"N_s: {result.module_params.n_s}",
+            f"gamma_pmp: {result.module_params.gamma_pmp}",
             "",
             "--- Inverter ---",
             f"Name: {result.inverter_params.name}",
@@ -494,7 +536,7 @@ class TestArtifactWriter:
             f"Tilt: {result.model.SystemDesign.subarray1_tilt}",
             f"Azimuth: {result.model.SystemDesign.subarray1_azimuth}",
             f"GCR: {result.model.SystemDesign.subarray1_gcr}",
-            f"Bifaciality: {result.model.SimpleEfficiencyModuleModel.spe_bifaciality}",
+            f"Bifaciality: {cec.cec_bifaciality}",
             f"Strings: {result.string_config.nstrings}",
             f"Modules/String: {result.string_config.modules_per_string}",
             f"Total Modules: {result.string_config.total_modules}",

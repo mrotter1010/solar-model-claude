@@ -1,4 +1,4 @@
-"""Tests for CEC database integration."""
+"""Tests for CEC database integration with real CSV data."""
 
 import pytest
 from pathlib import Path
@@ -15,26 +15,26 @@ class TestCECDatabase:
         return CECDatabase()
 
     def test_database_loads(self, db: CECDatabase) -> None:
-        """Test that databases load successfully."""
-        assert len(db.module_db) == 20
-        assert len(db.inverter_db) == 20
+        """Test that databases load successfully from CSV files."""
+        assert len(db.module_db) > 20000
+        assert len(db.inverter_db) > 2000
 
     def test_list_modules(self, db: CECDatabase) -> None:
         """Test listing modules."""
         all_modules = db.list_modules()
-        assert len(all_modules) == 20
-        assert "Canadian Solar CS3U-355P" in all_modules
+        assert len(all_modules) > 20000
+        assert "CSI Solar Co. Ltd. CS3U-355P" in all_modules
 
         # Test search filtering
-        canadian_modules = db.list_modules("Canadian")
-        assert len(canadian_modules) == 2
-        assert all("Canadian" in m for m in canadian_modules)
+        csi_modules = db.list_modules("CSI Solar")
+        assert len(csi_modules) > 100
+        assert all("CSI Solar" in m for m in csi_modules)
 
     def test_list_inverters(self, db: CECDatabase) -> None:
         """Test listing inverters."""
         all_inverters = db.list_inverters()
-        assert len(all_inverters) == 20
-        assert "SMA America: SB5.0-1SP-US-40 240V" in all_inverters
+        assert len(all_inverters) > 2000
+        assert "SMA America: SB3.0-1SP-US-40 [240V]" in all_inverters
 
         # Test search filtering
         sma_inverters = db.list_inverters("SMA")
@@ -42,24 +42,33 @@ class TestCECDatabase:
         assert all("SMA" in i for i in sma_inverters)
 
     def test_get_module_params(self, db: CECDatabase) -> None:
-        """Test retrieving module parameters."""
-        params = db.get_module_params("Canadian Solar CS3U-355P")
+        """Test retrieving module parameters with CEC five-parameter model fields."""
+        params = db.get_module_params("CSI Solar Co. Ltd. CS3U-355P")
 
-        assert params.name == "Canadian Solar CS3U-355P"
-        assert params.pmax == 355.0
-        assert params.vmp == 39.1
-        assert params.area == 1.94
+        assert params.name == "CSI Solar Co. Ltd. CS3U-355P"
+        assert params.pmax == pytest.approx(355.388, rel=0.01)
+        assert params.vmp == pytest.approx(39.4, rel=0.01)
+        assert params.area == pytest.approx(1.92, rel=0.01)
+        assert params.n_s == 72
+        assert params.alpha_sc == pytest.approx(0.00480459, rel=0.01)
+        assert params.beta_oc == pytest.approx(-0.136843, rel=0.01)
+        assert params.t_noct == pytest.approx(44.6, rel=0.01)
+        assert params.gamma_pmp == pytest.approx(-0.3811, rel=0.01)
+        assert params.technology == "Multi-c-Si"
+        assert params.bifacial == 0
         assert params.efficiency > 0
 
     def test_get_inverter_params(self, db: CECDatabase) -> None:
         """Test retrieving inverter parameters."""
-        params = db.get_inverter_params("SMA America: SB5.0-1SP-US-40 240V")
+        params = db.get_inverter_params("SMA America: SB3.0-1SP-US-40 [240V]")
 
-        assert params.name == "SMA America: SB5.0-1SP-US-40 240V"
-        assert params.paco == 5000.0
-        assert params.vdcmax == 600.0
-        assert params.mppt_low == 80.0
-        assert params.mppt_high == 600.0
+        assert params.name == "SMA America: SB3.0-1SP-US-40 [240V]"
+        assert params.paco == pytest.approx(3000.0, rel=0.01)
+        assert params.vdcmax == pytest.approx(480.0, rel=0.01)
+        assert params.mppt_low == pytest.approx(155.0, rel=0.01)
+        assert params.mppt_high == pytest.approx(480.0, rel=0.01)
+        assert params.vac == pytest.approx(240.0, rel=0.01)
+        assert params.idcmax > 0
 
     def test_module_not_found(self, db: CECDatabase) -> None:
         """Test error handling for missing module with fuzzy suggestions."""
@@ -77,10 +86,10 @@ class TestCECDatabase:
 
     def test_module_efficiency_calculation(self, db: CECDatabase) -> None:
         """Test module efficiency is calculated correctly."""
-        params = db.get_module_params("Canadian Solar CS3U-355P")
+        params = db.get_module_params("CSI Solar Co. Ltd. CS3U-355P")
 
         # Efficiency = Pmax / (Area * 1000)
-        expected_eff = 355.0 / (1.94 * 1000)
+        expected_eff = params.pmax / (params.area * 1000)
         assert abs(params.efficiency - expected_eff) < 0.001
 
 
@@ -93,26 +102,29 @@ def test_generate_database_listing() -> None:
 
     with open(output_path, "w") as f:
         f.write("=" * 80 + "\n")
-        f.write("CEC DATABASE CONTENTS (HARDCODED SAMPLE)\n")
+        f.write("CEC DATABASE CONTENTS (CSV)\n")
         f.write("=" * 80 + "\n\n")
 
-        # All modules
-        f.write("AVAILABLE MODULES (20):\n")
+        f.write(f"Total modules: {len(db.module_db)}\n")
+        f.write(f"Total inverters: {len(db.inverter_db)}\n\n")
+
+        # Sample modules (first 10)
+        f.write("SAMPLE MODULES (first 10):\n")
         f.write("-" * 80 + "\n")
-        for module in db.list_modules():
+        for module in db.list_modules()[:10]:
             params = db.get_module_params(module)
             f.write(f"{module}\n")
             f.write(
-                f"  Pmax: {params.pmax} W, Area: {params.area} m², "
+                f"  Pmax: {params.pmax:.1f} W, Area: {params.area:.2f} m², "
                 f"Eff: {params.efficiency:.3f}\n"
             )
 
         f.write("\n\n")
 
-        # All inverters
-        f.write("AVAILABLE INVERTERS (20):\n")
+        # Sample inverters (first 10)
+        f.write("SAMPLE INVERTERS (first 10):\n")
         f.write("-" * 80 + "\n")
-        for inverter in db.list_inverters():
+        for inverter in db.list_inverters()[:10]:
             params = db.get_inverter_params(inverter)
             f.write(f"{inverter}\n")
             f.write(

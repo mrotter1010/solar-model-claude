@@ -63,6 +63,7 @@ def _make_hourly_data(
             "ac_gross": [ac_gross_kw] * num_hours,
             "ac_net": [ac_gross_kw] * num_hours,
             "poa_irradiance": [poa_w_per_m2] * num_hours,
+            "poa_nominal": [poa_w_per_m2 * 1.04] * num_hours,
             "cell_temperature": [30.0] * num_hours,
             "inverter_efficiency": [97.5] * num_hours,
         }
@@ -174,7 +175,7 @@ class TestMetricsCalculation:
         expected_mwh = expected_kwh / 1000
         assert metrics.annual_energy_mwh == pytest.approx(expected_mwh, rel=1e-3)
 
-        # Net capacity factor: MWh / (8 MW * 8760 h) ≈ 0.6064
+        # Net capacity factor: MWh / (AC installed MW * 8760 h)
         expected_cf = expected_mwh / (8.0 * 8760)
         assert metrics.net_capacity_factor == pytest.approx(expected_cf, rel=1e-3)
 
@@ -183,8 +184,9 @@ class TestMetricsCalculation:
         assert metrics.specific_yield == pytest.approx(expected_sy, rel=1e-2)
 
         # Performance ratio: actual_kwh / ideal_kwh
-        # ideal = (200 W/m² * 8760 h / 1000 kWh/m²) * 10000 kWp
-        total_poa_kwh = 200.0 * 8760 / 1000
+        # ideal = (poa_nominal W/m² * 8760 h / 1000 kWh/m²) * 10000 kWp
+        poa_nominal_val = 200.0 * 1.04  # poa_nominal = poa_irradiance * 1.04
+        total_poa_kwh = poa_nominal_val * 8760 / 1000
         ideal = total_poa_kwh * 10000
         expected_pr = expected_kwh / ideal
         assert metrics.performance_ratio == pytest.approx(expected_pr, rel=1e-3)
@@ -204,7 +206,7 @@ class TestMetricsCalculation:
         # Act
         metrics = writer._calculate_metrics(hourly_data, site, result, 0.0)
 
-        # Assert — uses 8784 in denominator
+        # Assert — uses 8784 in denominator, AC capacity (8 MW)
         expected_cf = (5000.0 * 8784 / 1000) / (8.0 * 8784)
         assert metrics.net_capacity_factor == pytest.approx(expected_cf, rel=1e-4)
 
@@ -255,7 +257,7 @@ class TestTimeseriesCSV:
         assert len(df) == 8760
         expected_cols = {
             "timestamp", "ac_gross", "ac_net",
-            "poa_irradiance", "cell_temperature", "inverter_efficiency",
+            "poa_irradiance", "poa_nominal", "cell_temperature", "inverter_efficiency",
         }
         assert set(df.columns) == expected_cols
 

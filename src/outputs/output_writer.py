@@ -187,8 +187,8 @@ class OutputWriter:
         specific_yield = annual_energy_kwh / dc_capacity_kwp
 
         # Performance ratio: actual / ideal
-        # POA irradiance is W/m², hourly sum = Wh/m², /1000 = kWh/m²
-        total_poa_kwh_per_m2 = float(hourly_data["poa_irradiance"].sum()) / 1000
+        # poa_nominal is W/m² (nominal, before losses), hourly sum = Wh/m²
+        total_poa_kwh_per_m2 = float(hourly_data["poa_nominal"].sum()) / 1000
         # Ideal energy = (POA kWh/m² / STC 1 kW/m²) * DC capacity kW = kWh
         ideal_energy_kwh = total_poa_kwh_per_m2 * dc_capacity_kwp
         performance_ratio = (

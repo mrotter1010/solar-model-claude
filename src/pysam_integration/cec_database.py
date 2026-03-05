@@ -1,492 +1,51 @@
-"""CEC Database integration with hardcoded sample data for MVP."""
+"""CEC Database integration — loads real CEC CSV databases (~25k modules, ~4k inverters)."""
 
 from dataclasses import dataclass
 from difflib import get_close_matches
+from pathlib import Path
 from typing import Optional
+
+import pandas as pd
 
 from src.pysam_integration.exceptions import InverterNotFoundError, ModuleNotFoundError
 from src.utils.logger import setup_logger
 
-# Hardcoded sample CEC module database (20 realistic modules)
-CEC_MODULES_DB: dict[str, dict[str, float | int]] = {
-    "Canadian Solar CS3U-355P": {
-        "Vintage": 2019,
-        "Area": 1.94,
-        "Pmax": 355.0,
-        "Vmp": 39.1,
-        "Imp": 9.08,
-        "Voc": 46.8,
-        "Isc": 9.68,
-    },
-    "Canadian Solar CS1U-410MS": {
-        "Vintage": 2021,
-        "Area": 2.01,
-        "Pmax": 410.0,
-        "Vmp": 40.6,
-        "Imp": 10.1,
-        "Voc": 49.1,
-        "Isc": 10.7,
-    },
-    "Jinko Solar JKM400M-72HL-BDV": {
-        "Vintage": 2020,
-        "Area": 2.01,
-        "Pmax": 400.0,
-        "Vmp": 41.5,
-        "Imp": 9.64,
-        "Voc": 49.9,
-        "Isc": 10.18,
-    },
-    "Trina Solar TSM-DEG19C.20": {
-        "Vintage": 2021,
-        "Area": 2.01,
-        "Pmax": 485.0,
-        "Vmp": 42.1,
-        "Imp": 11.52,
-        "Voc": 50.4,
-        "Isc": 12.23,
-    },
-    "LONGi Solar LR5-72HIH-450M": {
-        "Vintage": 2021,
-        "Area": 2.14,
-        "Pmax": 450.0,
-        "Vmp": 41.9,
-        "Imp": 10.74,
-        "Voc": 50.1,
-        "Isc": 11.38,
-    },
-    "SunPower SPR-X21-335-BLK": {
-        "Vintage": 2017,
-        "Area": 1.63,
-        "Pmax": 335.0,
-        "Vmp": 57.3,
-        "Imp": 5.85,
-        "Voc": 67.9,
-        "Isc": 6.23,
-    },
-    "SunPower SPR-MAX3-400": {
-        "Vintage": 2019,
-        "Area": 1.69,
-        "Pmax": 400.0,
-        "Vmp": 67.5,
-        "Imp": 5.93,
-        "Voc": 80.7,
-        "Isc": 6.34,
-    },
-    "REC Solar REC400AA": {
-        "Vintage": 2020,
-        "Area": 1.94,
-        "Pmax": 400.0,
-        "Vmp": 40.1,
-        "Imp": 9.98,
-        "Voc": 48.0,
-        "Isc": 10.53,
-    },
-    "Hanwha Q CELLS Q.PEAK DUO L-G6.2 405": {
-        "Vintage": 2020,
-        "Area": 1.88,
-        "Pmax": 405.0,
-        "Vmp": 38.8,
-        "Imp": 10.44,
-        "Voc": 46.0,
-        "Isc": 11.03,
-    },
-    "JA Solar JAM72S20-450/MR": {
-        "Vintage": 2021,
-        "Area": 2.09,
-        "Pmax": 450.0,
-        "Vmp": 41.6,
-        "Imp": 10.82,
-        "Voc": 50.4,
-        "Isc": 11.45,
-    },
-    "First Solar FS-6440": {
-        "Vintage": 2021,
-        "Area": 2.01,
-        "Pmax": 440.0,
-        "Vmp": 142.5,
-        "Imp": 3.09,
-        "Voc": 171.0,
-        "Isc": 3.35,
-    },
-    "Panasonic VBHN340SA17": {
-        "Vintage": 2018,
-        "Area": 1.69,
-        "Pmax": 340.0,
-        "Vmp": 58.0,
-        "Imp": 5.86,
-        "Voc": 69.7,
-        "Isc": 6.24,
-    },
-    "Silfab Solar SIL-380 NX": {
-        "Vintage": 2020,
-        "Area": 1.88,
-        "Pmax": 380.0,
-        "Vmp": 39.5,
-        "Imp": 9.62,
-        "Voc": 47.5,
-        "Isc": 10.17,
-    },
-    "Mission Solar MSE315SQ5T": {
-        "Vintage": 2018,
-        "Area": 1.64,
-        "Pmax": 315.0,
-        "Vmp": 32.9,
-        "Imp": 9.58,
-        "Voc": 40.0,
-        "Isc": 10.13,
-    },
-    "Axitec AXIpremium XL HC BF 410": {
-        "Vintage": 2021,
-        "Area": 2.01,
-        "Pmax": 410.0,
-        "Vmp": 38.4,
-        "Imp": 10.68,
-        "Voc": 45.9,
-        "Isc": 11.35,
-    },
-    "Risen Energy RSM144-6-390BMDG": {
-        "Vintage": 2020,
-        "Area": 1.95,
-        "Pmax": 390.0,
-        "Vmp": 40.8,
-        "Imp": 9.56,
-        "Voc": 49.0,
-        "Isc": 10.13,
-    },
-    "Phono Solar PS400M4-20/VH": {
-        "Vintage": 2020,
-        "Area": 1.95,
-        "Pmax": 400.0,
-        "Vmp": 41.4,
-        "Imp": 9.66,
-        "Voc": 49.8,
-        "Isc": 10.23,
-    },
-    "Vikram Solar ELDORA VSP72-5-390": {
-        "Vintage": 2020,
-        "Area": 1.97,
-        "Pmax": 390.0,
-        "Vmp": 40.5,
-        "Imp": 9.63,
-        "Voc": 48.9,
-        "Isc": 10.19,
-    },
-    "Seraphim SRP-405-BMB-HV": {
-        "Vintage": 2020,
-        "Area": 2.01,
-        "Pmax": 405.0,
-        "Vmp": 37.2,
-        "Imp": 10.89,
-        "Voc": 44.8,
-        "Isc": 11.58,
-    },
-    "Astronergy CHSM6612M-HC": {
-        "Vintage": 2020,
-        "Area": 1.98,
-        "Pmax": 395.0,
-        "Vmp": 40.1,
-        "Imp": 9.85,
-        "Voc": 48.3,
-        "Isc": 10.45,
-    },
-}
-
-# Hardcoded sample CEC inverter database (20 realistic inverters)
-CEC_INVERTERS_DB: dict[str, dict[str, float]] = {
-    "SMA America: SB5.0-1SP-US-40 240V": {
-        "Paco": 5000.0,
-        "Pdco": 5151.5,
-        "Vdco": 310.0,
-        "Pso": 10.85,
-        "Vdcmax": 600.0,
-        "Mppt_low": 80.0,
-        "Mppt_high": 600.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "SMA America: SB7.7-1SP-US-40 240V": {
-        "Paco": 7700.0,
-        "Pdco": 7938.3,
-        "Vdco": 360.0,
-        "Pso": 17.2,
-        "Vdcmax": 600.0,
-        "Mppt_low": 80.0,
-        "Mppt_high": 600.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Fronius USA: Primo 8.2-1 208-240": {
-        "Paco": 8200.0,
-        "Pdco": 8458.4,
-        "Vdco": 365.0,
-        "Pso": 23.0,
-        "Vdcmax": 600.0,
-        "Mppt_low": 80.0,
-        "Mppt_high": 600.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "SolarEdge Technologies Inc: SE10000A-US (240V)": {
-        "Paco": 10000.0,
-        "Pdco": 10300.0,
-        "Vdco": 360.0,
-        "Pso": 14.2,
-        "Vdcmax": 600.0,
-        "Mppt_low": 300.0,
-        "Mppt_high": 480.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Enphase Energy: IQ7PLUS-72-2-US": {
-        "Paco": 295.0,
-        "Pdco": 301.4,
-        "Vdco": 37.0,
-        "Pso": 0.02,
-        "Vdcmax": 60.0,
-        "Mppt_low": 16.0,
-        "Mppt_high": 60.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "ABB: PVS-100-TL-OUTD-US 480V": {
-        "Paco": 100000.0,
-        "Pdco": 102564.0,
-        "Vdco": 683.0,
-        "Pso": 303.0,
-        "Vdcmax": 1000.0,
-        "Mppt_low": 570.0,
-        "Mppt_high": 850.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "SMA America: Sunny Central 2500-EV-US (800V)": {
-        "Paco": 2500000.0,
-        "Pdco": 2551020.4,
-        "Vdco": 811.0,
-        "Pso": 5400.0,
-        "Vdcmax": 1100.0,
-        "Mppt_low": 580.0,
-        "Mppt_high": 850.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Power Electronics: FS3000E": {
-        "Paco": 3000000.0,
-        "Pdco": 3077524.0,
-        "Vdco": 805.0,
-        "Pso": 7680.0,
-        "Vdcmax": 1300.0,
-        "Mppt_low": 480.0,
-        "Mppt_high": 820.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "SMA America: SB3.8-1SP-US-40 240V": {
-        "Paco": 3800.0,
-        "Pdco": 3916.0,
-        "Vdco": 295.0,
-        "Pso": 8.7,
-        "Vdcmax": 600.0,
-        "Mppt_low": 80.0,
-        "Mppt_high": 600.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "SolarEdge Technologies Inc: SE5000A-US (240V)": {
-        "Paco": 5000.0,
-        "Pdco": 5150.0,
-        "Vdco": 360.0,
-        "Pso": 9.5,
-        "Vdcmax": 600.0,
-        "Mppt_low": 300.0,
-        "Mppt_high": 480.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Fronius USA: Symo 24.0-3 480": {
-        "Paco": 24000.0,
-        "Pdco": 24742.0,
-        "Vdco": 720.0,
-        "Pso": 55.0,
-        "Vdcmax": 1000.0,
-        "Mppt_low": 420.0,
-        "Mppt_high": 800.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "SMA America: SB6.0-1SP-US-40 240V": {
-        "Paco": 6000.0,
-        "Pdco": 6186.0,
-        "Vdco": 330.0,
-        "Pso": 14.0,
-        "Vdcmax": 600.0,
-        "Mppt_low": 80.0,
-        "Mppt_high": 600.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Chint Power Systems: CPS SCH50KTL-DO-US-400": {
-        "Paco": 50000.0,
-        "Pdco": 51281.0,
-        "Vdco": 730.0,
-        "Pso": 150.0,
-        "Vdcmax": 1000.0,
-        "Mppt_low": 200.0,
-        "Mppt_high": 900.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Schneider Electric: Conext CL25000E-US": {
-        "Paco": 25000.0,
-        "Pdco": 25641.0,
-        "Vdco": 625.0,
-        "Pso": 80.0,
-        "Vdcmax": 1000.0,
-        "Mppt_low": 300.0,
-        "Mppt_high": 800.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Huawei Technologies Co.: SUN2000-100KTL-M1": {
-        "Paco": 110000.0,
-        "Pdco": 113402.0,
-        "Vdco": 810.0,
-        "Pso": 300.0,
-        "Vdcmax": 1100.0,
-        "Mppt_low": 200.0,
-        "Mppt_high": 1000.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Delta Products Corporation: M50A": {
-        "Paco": 50000.0,
-        "Pdco": 51546.0,
-        "Vdco": 650.0,
-        "Pso": 100.0,
-        "Vdcmax": 1000.0,
-        "Mppt_low": 330.0,
-        "Mppt_high": 800.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Sungrow Power Supply: SG110CX": {
-        "Paco": 110000.0,
-        "Pdco": 113402.0,
-        "Vdco": 875.0,
-        "Pso": 280.0,
-        "Vdcmax": 1100.0,
-        "Mppt_low": 520.0,
-        "Mppt_high": 1000.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "GoodWe USA: GW30K-DT": {
-        "Paco": 30000.0,
-        "Pdco": 30928.0,
-        "Vdco": 600.0,
-        "Pso": 75.0,
-        "Vdcmax": 1000.0,
-        "Mppt_low": 180.0,
-        "Mppt_high": 850.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Ginlong Technologies: Solis-75K-EV": {
-        "Paco": 75000.0,
-        "Pdco": 77160.0,
-        "Vdco": 700.0,
-        "Pso": 200.0,
-        "Vdcmax": 1100.0,
-        "Mppt_low": 200.0,
-        "Mppt_high": 1000.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-    "Sungrow Power Supply: SG250HX": {
-        "Paco": 250000.0,
-        "Pdco": 256410.0,
-        "Vdco": 970.0,
-        "Pso": 600.0,
-        "Vdcmax": 1500.0,
-        "Mppt_low": 500.0,
-        "Mppt_high": 1300.0,
-        "C0": -0.000005,
-        "C1": -0.000025,
-        "C2": 0.001,
-        "C3": -0.0002,
-        "Pnt": 10.0,
-    },
-}
+# Default paths to CEC CSV databases (relative to project root)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_MODULES_CSV = _PROJECT_ROOT / "docs" / "CEC Modules.csv"
+DEFAULT_INVERTERS_CSV = _PROJECT_ROOT / "docs" / "CEC Inverters.csv"
 
 
 @dataclass
 class CECModuleParams:
-    """CEC module parameters extracted from database."""
+    """CEC module parameters for the five-parameter single-diode model."""
 
     name: str
     area: float  # Module area (m²)
-    pmax: float  # Max power (W)
+    pmax: float  # Max power at STC (W)
     vmp: float  # Voltage at max power (V)
     imp: float  # Current at max power (A)
     voc: float  # Open circuit voltage (V)
     isc: float  # Short circuit current (A)
+
+    # Five-parameter single-diode model fields
+    n_s: int  # Number of cells in series
+    alpha_sc: float  # Short-circuit current temperature coefficient (A/K)
+    beta_oc: float  # Open-circuit voltage temperature coefficient (V/K)
+    a_ref: float  # Modified ideality factor at reference conditions (V)
+    i_l_ref: float  # Light current at reference conditions (A)
+    i_o_ref: float  # Diode saturation current at reference conditions (A)
+    r_s: float  # Series resistance (Ohm)
+    r_sh_ref: float  # Shunt resistance at reference conditions (Ohm)
+    adjust: float  # Temperature coefficient adjustment (%)
+    gamma_pmp: float  # Max power temperature coefficient (%/K)
+    t_noct: float  # Nominal operating cell temperature (°C)
+
+    # Physical / classification fields
+    bifacial: int  # 0 or 1
+    length: float  # Module length (m), 0 if not available
+    width: float  # Module width (m), 0 if not available
+    technology: str  # e.g. "Mono-c-Si", "Multi-c-Si"
 
     @property
     def efficiency(self) -> float:
@@ -513,6 +72,8 @@ class CECInverterParams:
     c2: float  # Sandia coefficient: Paco correction for DC voltage
     c3: float  # Sandia coefficient: Pso correction for DC voltage
     pnt: float  # Night tare loss (W)
+    vac: float  # AC voltage (V)
+    idcmax: float  # Max DC current (A)
 
     @property
     def efficiency(self) -> float:
@@ -523,19 +84,92 @@ class CECInverterParams:
 
 
 class CECDatabase:
-    """Interface to CEC module and inverter databases."""
+    """Interface to CEC module and inverter databases loaded from CSV files."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        modules_csv_path: Path | None = None,
+        inverters_csv_path: Path | None = None,
+    ) -> None:
         self.logger = setup_logger(__name__)
-        self.module_db = CEC_MODULES_DB
-        self.inverter_db = CEC_INVERTERS_DB
+
+        modules_path = modules_csv_path or DEFAULT_MODULES_CSV
+        inverters_path = inverters_csv_path or DEFAULT_INVERTERS_CSV
+
+        self.module_db = self._load_modules_csv(modules_path)
+        self.inverter_db = self._load_inverters_csv(inverters_path)
 
         self.logger.info(
-            f"Loaded {len(self.module_db)} modules from hardcoded database"
+            f"Loaded {len(self.module_db)} modules from {modules_path.name}"
         )
         self.logger.info(
-            f"Loaded {len(self.inverter_db)} inverters from hardcoded database"
+            f"Loaded {len(self.inverter_db)} inverters from {inverters_path.name}"
         )
+
+    def _load_modules_csv(self, csv_path: Path) -> dict[str, dict]:
+        """Load CEC modules CSV into a dict keyed by Name.
+
+        CSV structure: row 1 = column names, rows 2-3 = units/PySAM mapping, row 4+ = data.
+        """
+        df = pd.read_csv(csv_path, header=0, skiprows=[1, 2])
+
+        module_db: dict[str, dict] = {}
+        for _, row in df.iterrows():
+            name = str(row["Name"])
+            module_db[name] = {
+                "STC": float(row["STC"]),
+                "A_c": float(row["A_c"]),
+                "V_mp_ref": float(row["V_mp_ref"]),
+                "I_mp_ref": float(row["I_mp_ref"]),
+                "V_oc_ref": float(row["V_oc_ref"]),
+                "I_sc_ref": float(row["I_sc_ref"]),
+                "N_s": int(row["N_s"]),
+                "alpha_sc": float(row["alpha_sc"]),
+                "beta_oc": float(row["beta_oc"]),
+                "a_ref": float(row["a_ref"]),
+                "I_L_ref": float(row["I_L_ref"]),
+                "I_o_ref": float(row["I_o_ref"]),
+                "R_s": float(row["R_s"]),
+                "R_sh_ref": float(row["R_sh_ref"]),
+                "Adjust": float(row["Adjust"]),
+                "gamma_pmp": float(row["gamma_pmp"]),
+                "T_NOCT": float(row["T_NOCT"]),
+                "Bifacial": int(row["Bifacial"]),
+                "Length": float(row["Length"]) if pd.notna(row.get("Length")) else 0.0,
+                "Width": float(row["Width"]) if pd.notna(row.get("Width")) else 0.0,
+                "Technology": str(row["Technology"]),
+            }
+
+        return module_db
+
+    def _load_inverters_csv(self, csv_path: Path) -> dict[str, dict]:
+        """Load CEC inverters CSV into a dict keyed by Name.
+
+        CSV structure: row 1 = column names, rows 2-3 = units/PySAM mapping, row 4+ = data.
+        """
+        df = pd.read_csv(csv_path, header=0, skiprows=[1, 2])
+
+        inverter_db: dict[str, dict] = {}
+        for _, row in df.iterrows():
+            name = str(row["Name"])
+            inverter_db[name] = {
+                "Paco": float(row["Paco"]),
+                "Pdco": float(row["Pdco"]),
+                "Vdco": float(row["Vdco"]),
+                "Pso": float(row["Pso"]),
+                "Vdcmax": float(row["Vdcmax"]),
+                "Mppt_low": float(row["Mppt_low"]),
+                "Mppt_high": float(row["Mppt_high"]),
+                "C0": float(row["C0"]),
+                "C1": float(row["C1"]),
+                "C2": float(row["C2"]),
+                "C3": float(row["C3"]),
+                "Pnt": float(row["Pnt"]),
+                "Vac": float(row["Vac"]),
+                "Idcmax": float(row["Idcmax"]),
+            }
+
+        return inverter_db
 
     def get_module_params(self, module_name: str) -> CECModuleParams:
         """Retrieve CEC module parameters by name.
@@ -559,12 +193,27 @@ class CECDatabase:
 
         return CECModuleParams(
             name=module_name,
-            area=data["Area"],
-            pmax=data["Pmax"],
-            vmp=data["Vmp"],
-            imp=data["Imp"],
-            voc=data["Voc"],
-            isc=data["Isc"],
+            area=data["A_c"],
+            pmax=data["STC"],
+            vmp=data["V_mp_ref"],
+            imp=data["I_mp_ref"],
+            voc=data["V_oc_ref"],
+            isc=data["I_sc_ref"],
+            n_s=data["N_s"],
+            alpha_sc=data["alpha_sc"],
+            beta_oc=data["beta_oc"],
+            a_ref=data["a_ref"],
+            i_l_ref=data["I_L_ref"],
+            i_o_ref=data["I_o_ref"],
+            r_s=data["R_s"],
+            r_sh_ref=data["R_sh_ref"],
+            adjust=data["Adjust"],
+            gamma_pmp=data["gamma_pmp"],
+            t_noct=data["T_NOCT"],
+            bifacial=data["Bifacial"],
+            length=data["Length"],
+            width=data["Width"],
+            technology=data["Technology"],
         )
 
     def get_inverter_params(self, inverter_name: str) -> CECInverterParams:
@@ -601,6 +250,8 @@ class CECDatabase:
             c2=data["C2"],
             c3=data["C3"],
             pnt=data["Pnt"],
+            vac=data["Vac"],
+            idcmax=data["Idcmax"],
         )
 
     def list_modules(self, search_term: Optional[str] = None) -> list[str]:

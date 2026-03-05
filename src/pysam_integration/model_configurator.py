@@ -74,7 +74,7 @@ class ModelConfigurator:
         model = pvsam.new()
 
         self._configure_system_capacity(model, site_config)
-        self._configure_module(model, module_params)
+        self._configure_module(model, module_params, site_config)
         self._configure_inverter(model, inverter_params, inverter_count)
         string_config = self._configure_array(
             model, site_config, module_params, inverter_params
@@ -107,11 +107,12 @@ class ModelConfigurator:
             f"inverter_count={sd.inverter_count}, "
             f"backtrack={sd.subarray1_backtrack}"
         )
+        cec = model.CECPerformanceModelWithModuleDatabase
         logger.info(
             f"  Module: model={model.Module.module_model}, "
-            f"area={model.SimpleEfficiencyModuleModel.spe_area}, "
-            f"eff={model.SimpleEfficiencyModuleModel.spe_eff4:.2f}%, "
-            f"vmp={model.SimpleEfficiencyModuleModel.spe_vmp}"
+            f"area={cec.cec_area}, "
+            f"adjust={cec.cec_adjust:.4f}%, "
+            f"vmp={cec.cec_v_mp_ref}"
         )
         logger.info(
             f"  Inverter: model={model.Inverter.inverter_model}, "
@@ -180,38 +181,63 @@ class ModelConfigurator:
         model.SystemDesign.system_capacity = site_config.system_capacity_kw
 
     def _configure_module(
-        self, model: pvsam.Pvsamv1, module_params: CECModuleParams
+        self,
+        model: pvsam.Pvsamv1,
+        module_params: CECModuleParams,
+        site_config: SiteConfig,
     ) -> None:
-        """Set module parameters using the Simple Efficiency module model."""
-        model.Module.module_model = 0  # Simple Efficiency Module Model
+        """Set module parameters using the CEC Performance Model with Module Database."""
+        model.Module.module_model = 1  # CEC Performance Model with Module Database
 
-        spe = model.SimpleEfficiencyModuleModel
-        spe.spe_area = module_params.area
-        spe.spe_vmp = module_params.vmp
-        spe.spe_voc = module_params.voc
+        cec = model.CECPerformanceModelWithModuleDatabase
+        cec.cec_area = module_params.area
+        cec.cec_i_sc_ref = module_params.isc
+        cec.cec_v_oc_ref = module_params.voc
+        cec.cec_i_mp_ref = module_params.imp
+        cec.cec_v_mp_ref = module_params.vmp
+        cec.cec_alpha_sc = module_params.alpha_sc
+        cec.cec_beta_oc = module_params.beta_oc
+        cec.cec_n_s = module_params.n_s
+        cec.cec_adjust = module_params.adjust
+        cec.cec_t_noct = module_params.t_noct
+        cec.cec_a_ref = module_params.a_ref
+        cec.cec_i_l_ref = module_params.i_l_ref
+        cec.cec_i_o_ref = module_params.i_o_ref
+        cec.cec_r_s = module_params.r_s
+        cec.cec_r_sh_ref = module_params.r_sh_ref
 
-        # Efficiency at 5 irradiance levels (W/m²)
-        # Slight derating at low irradiance is realistic
-        eff = module_params.efficiency * 100  # Convert fraction to %
-        spe.spe_rad0 = 200.0
-        spe.spe_rad1 = 400.0
-        spe.spe_rad2 = 600.0
-        spe.spe_rad3 = 800.0
-        spe.spe_rad4 = 1000.0
-        spe.spe_eff0 = eff * 0.90
-        spe.spe_eff1 = eff * 0.95
-        spe.spe_eff2 = eff * 0.98
-        spe.spe_eff3 = eff * 0.99
-        spe.spe_eff4 = eff
-        spe.spe_reference = 4  # Reference at 1000 W/m²
+        # Thermal model
+        cec.cec_temp_corr_mode = 0  # Standard NOCT
+        cec.cec_standoff = 6  # Default: building integrated / ground mount
+        cec.cec_height = 0  # One story or less
+        # Use CEC dimensions if available; otherwise estimate from area (2:1 aspect)
+        if module_params.length > 0 and module_params.width > 0:
+            cec.cec_module_length = module_params.length
+            cec.cec_module_width = module_params.width
+        else:
+            cec.cec_module_length = (module_params.area * 2) ** 0.5
+            cec.cec_module_width = (module_params.area / 2) ** 0.5
 
-        # Thermal model defaults
-        spe.spe_temp_coeff = -0.35  # %/°C typical for crystalline Si
-        spe.spe_fd = 1.0  # Diffuse utilization factor
-        spe.spe_a = -3.56  # NOCT cell temp coefficient a
-        spe.spe_b = -0.075  # NOCT cell temp coefficient b
-        spe.spe_dT = 3.0  # Cell-to-module temperature delta
-        spe.spe_module_structure = 0  # Glass/Cell/Polymer Sheet
+        # Optional thermal model parameters (not in CEC CSV, use defaults)
+        cec.cec_transient_thermal_model_unit_mass = 11.09  # kg/m², typical for glass/cell/glass
+        cec.cec_mounting_config = 0  # Rack mounting
+        cec.cec_heat_transfer = 0  # NOCT cell temp model
+
+        # Bifacial configuration (belongs with module model group)
+        if site_config.bifacial:
+            cec.cec_is_bifacial = 1
+            cec.cec_bifaciality = 0.7
+            cec.cec_bifacial_transmission_factor = 0.013
+            cec.cec_bifacial_ground_clearance_height = (
+                site_config.ground_clearance_height_m
+                if site_config.racking == "tracker"
+                else 0.0
+            )
+        else:
+            cec.cec_is_bifacial = 0
+            cec.cec_bifaciality = 0.0
+            cec.cec_bifacial_transmission_factor = 0.0
+            cec.cec_bifacial_ground_clearance_height = 0.0
 
     def _configure_inverter(
         self,
@@ -221,28 +247,28 @@ class ModelConfigurator:
     ) -> None:
         """Set inverter parameters using the CEC/Sandia model.
 
-        PySAM's Inverter.inv_snl_paco is the total system AC power limit,
-        while InverterCECDatabase params describe a single inverter for the
-        Sandia efficiency model. inverter_count scales the single-inverter
-        output to system level.
+        Uses per-unit (unscaled) inverter parameters from the CEC database.
+        PySAM's inverter_count handles scaling to system level internally.
         """
         model.Inverter.inverter_model = 0  # CEC Database (Sandia)
 
         inv_db = model.InverterCECDatabase
         inv_db.inv_snl_paco = inverter_params.paco
         inv_db.inv_snl_pdco = inverter_params.pdco
-        inv_db.inv_snl_vdco = inverter_params.vdco
         inv_db.inv_snl_pso = inverter_params.pso
+        inv_db.inv_snl_pnt = inverter_params.pnt
+        inv_db.inv_snl_vdco = inverter_params.vdco
         inv_db.inv_snl_vdcmax = inverter_params.vdcmax
         inv_db.inv_snl_c0 = inverter_params.c0
         inv_db.inv_snl_c1 = inverter_params.c1
         inv_db.inv_snl_c2 = inverter_params.c2
         inv_db.inv_snl_c3 = inverter_params.c3
-        inv_db.inv_snl_pnt = inverter_params.pnt
         inv_db.inv_tdc_cec_db = [[1500, 52.8, 0]]
 
-        # Set total system AC limit AFTER InverterCECDatabase (PySAM links them)
-        model.Inverter.inv_snl_paco = inverter_params.paco * inverter_count
+        model.Inverter.mppt_low_inverter = inverter_params.mppt_low
+        model.Inverter.mppt_hi_inverter = inverter_params.mppt_high
+        model.Inverter.inv_num_mppt = 1
+
         model.SystemDesign.inverter_count = inverter_count
 
     def _configure_array(
@@ -252,11 +278,14 @@ class ModelConfigurator:
         module_params: CECModuleParams,
         inverter_params: CECInverterParams | None = None,
     ) -> StringConfiguration:
-        """Set array configuration — tracking, tilt, azimuth, GCR, bifaciality, strings."""
+        """Set array configuration — tracking, tilt, azimuth, GCR, strings."""
         # Disable additional subarrays (we only use subarray1)
         model.SystemDesign.subarray2_enable = 0
         model.SystemDesign.subarray3_enable = 0
         model.SystemDesign.subarray4_enable = 0
+
+        # Connect subarray1 to MPPT input 1
+        model.SystemDesign.subarray1_mppt_input = 1
 
         # Tracking mode
         model.SystemDesign.subarray1_track_mode = site_config.tracking_mode
@@ -277,17 +306,6 @@ class ModelConfigurator:
         # Shading mode: 1 = standard (non-linear)
         model.Shading.subarray1_shade_mode = 1
 
-        # Bifaciality (on Simple Efficiency module group)
-        spe = model.SimpleEfficiencyModuleModel
-        if site_config.bifacial:
-            spe.spe_is_bifacial = 1
-            spe.spe_bifaciality = 0.7
-            spe.spe_bifacial_transmission_factor = 0.013
-        else:
-            spe.spe_is_bifacial = 0
-            spe.spe_bifaciality = 0.0
-            spe.spe_bifacial_transmission_factor = 0.0
-
         # Module orientation: 0=portrait, 1=landscape (on Layout group)
         model.Layout.subarray1_mod_orient = (
             0 if site_config.module_orientation == "portrait" else 1
@@ -300,16 +318,14 @@ class ModelConfigurator:
         # Number of modules along row width (table width)
         model.Layout.subarray1_nmodx = site_config.number_of_modules
 
-        # Ground clearance (on Simple Efficiency module group, tracker only)
-        if site_config.racking == "tracker":
-            spe.spe_bifacial_ground_clearance_height = site_config.ground_clearance_height_m
-
-        # String sizing (voltage-aware: target ~80% of inverter Vdco)
+        # String sizing (voltage-aware: target inverter Vdco, check Voc < Vdcmax)
         string_config = self.string_calc.calculate_strings(
             site_config.dc_size_mw,
             module_params.pmax,
             module_vmp=module_params.vmp,
+            module_voc=module_params.voc,
             inverter_vdco=inverter_params.vdco if inverter_params else None,
+            inverter_vdcmax=inverter_params.vdcmax if inverter_params else None,
         )
         model.SystemDesign.subarray1_nstrings = string_config.nstrings
         model.SystemDesign.subarray1_modules_per_string = (
@@ -337,15 +353,19 @@ class ModelConfigurator:
             site_config.transformer_losses_percent * 0.2
         )
 
-        # Availability (CSV is downtime %, PySAM adjust_constant is availability %)
-        model.AdjustmentFactors.adjust_constant = site_config.availability_for_pysam
+        # Availability: CSV availability_percent is downtime % (e.g. 2.0 = 2% downtime).
+        # PySAM adjust_constant is a percent reduction (e.g. 2.0 = reduce output by 2%).
+        model.AdjustmentFactors.adjust_constant = site_config.availability_percent
 
-        # Module mismatch and LID
+        # Module mismatch (only subarray1_mismatch_loss — electrical_mismatch is
+        # a separate category; setting both to the same value double-counts)
         model.Losses.subarray1_mismatch_loss = site_config.module_mismatch_percent
-        model.Losses.subarray1_electrical_mismatch = site_config.module_mismatch_percent
+        model.Losses.subarray1_electrical_mismatch = 0.0
         model.Losses.subarray1_diodeconn_loss = 0.5  # Default
         model.Losses.subarray1_tracking_loss = 0.0
-        model.Losses.subarray1_nameplate_loss = 0.0
+
+        # LID (Light-Induced Degradation) — applied as nameplate loss
+        model.Losses.subarray1_nameplate_loss = site_config.lid_percent
 
         # Monthly soiling losses (constant 5% MVP default)
         model.Losses.subarray1_soiling = [5.0] * 12

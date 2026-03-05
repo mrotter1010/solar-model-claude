@@ -50,8 +50,10 @@ class PySAMSimulator:
         site = model_config.site_config
         logger.info(f"Executing simulation for site: {site.site_name}")
 
+        model = model_config.model
+
         try:
-            model_config.model.execute()
+            model.execute()
         except Exception as exc:
             error_msg = f"PySAM execution failed for {site.site_name}: {exc}"
             logger.error(error_msg)
@@ -62,6 +64,12 @@ class PySAMSimulator:
                 success=False,
                 error_message=error_msg,
             )
+
+        outputs = model.Outputs
+        logger.info(
+            f"  annual_energy={outputs.annual_energy:.0f} kWh, "
+            f"CF={outputs.capacity_factor:.2f}%"
+        )
 
         # Extract weather year from file
         weather_year = self._extract_weather_year(site.weather_file_path)
@@ -100,7 +108,8 @@ class PySAMSimulator:
 
         # PySAM standard output arrays
         gen = list(outputs.gen)  # AC output in kW
-        poa = list(outputs.subarray1_poa_eff)  # POA irradiance W/m2
+        poa_eff = list(outputs.subarray1_poa_eff)  # Effective POA W/m2
+        poa_nom = list(outputs.subarray1_poa_nom)  # Nominal POA W/m2
         cell_temp = list(outputs.subarray1_celltemp)  # Cell temperature C
         inv_eff = list(outputs.inv_eff)  # Inverter efficiency %
 
@@ -113,9 +122,10 @@ class PySAMSimulator:
         return pd.DataFrame(
             {
                 "timestamp": timestamps,
-                "ac_gross": gen,  # Shading haircut deferred to Prompt 5
+                "ac_gross": gen,
                 "ac_net": gen,
-                "poa_irradiance": poa,
+                "poa_irradiance": poa_eff,
+                "poa_nominal": poa_nom,
                 "cell_temperature": cell_temp,
                 "inverter_efficiency": inv_eff,
             }

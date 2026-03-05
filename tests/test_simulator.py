@@ -36,9 +36,9 @@ def _make_site_config(**overrides: object) -> SiteConfig:
         "module_orientation": "portrait",
         "number_of_modules": 1,
         "ground_clearance_height_m": 1.5,
-        "panel_model": "Canadian Solar CS3U-355P",
+        "panel_model": "CSI Solar Co. Ltd. CS3U-355P",
         "bifacial": True,
-        "inverter_model": "SMA America: Sunny Central 2500-EV-US (800V)",
+        "inverter_model": "Sungrow Power Supply Co - Ltd : SG250HX-US [800V]",
         "gcr": 0.35,
         "shading_percent": 3.0,
         "dc_wiring_loss_percent": 2.0,
@@ -68,9 +68,13 @@ def _make_mock_model_config(
 
     # Mock PySAM Outputs — 8760 hourly values
     mock_model.Outputs.gen = [100.0] * gen_length
+    mock_model.Outputs.dc_net = [105.0] * gen_length
     mock_model.Outputs.subarray1_poa_eff = [500.0] * gen_length
+    mock_model.Outputs.subarray1_poa_nom = [520.0] * gen_length
     mock_model.Outputs.subarray1_celltemp = [35.0] * gen_length
     mock_model.Outputs.inv_eff = [96.5] * gen_length
+    mock_model.Outputs.annual_energy = 876000.0
+    mock_model.Outputs.capacity_factor = 30.0
 
     return PySAMModelConfig(
         model=mock_model,
@@ -214,6 +218,7 @@ class TestTimeseriesExtraction:
             "ac_gross",
             "ac_net",
             "poa_irradiance",
+            "poa_nominal",
             "cell_temperature",
             "inverter_efficiency",
         ]

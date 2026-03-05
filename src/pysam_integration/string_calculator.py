@@ -33,19 +33,23 @@ class StringCalculator:
         dc_size_mw: float,
         module_wattage: float,
         module_vmp: float | None = None,
+        module_voc: float | None = None,
         inverter_vdco: float | None = None,
+        inverter_vdcmax: float | None = None,
     ) -> StringConfiguration:
         """Calculate optimal string configuration.
 
         When module_vmp and inverter_vdco are provided, modules_per_string is
-        targeted at ~80% of the inverter's nominal DC voltage to maximize
-        inverter efficiency.
+        targeted at the inverter's nominal DC voltage for optimal efficiency.
+        A safety check ensures string Voc does not exceed inverter Vdcmax.
 
         Args:
             dc_size_mw: Target DC system size in MW.
             module_wattage: Module power rating in watts (Pmax).
             module_vmp: Module voltage at max power (Vmp) in volts.
+            module_voc: Module open-circuit voltage (Voc) in volts.
             inverter_vdco: Inverter nominal DC voltage (Vdco) in volts.
+            inverter_vdcmax: Inverter maximum DC voltage (Vdcmax) in volts.
 
         Returns:
             StringConfiguration with the best valid configuration.
@@ -56,14 +60,19 @@ class StringCalculator:
         # Calculate target modules_per_string from inverter voltage
         target_mps = None
         if module_vmp is not None and inverter_vdco is not None:
-            target_voltage = inverter_vdco * 0.8
-            target_mps = round(target_voltage / module_vmp)
+            target_mps = round(inverter_vdco / module_vmp)
             target_mps = max(MIN_MODULES_PER_STRING, min(target_mps, MAX_MODULES_PER_STRING))
+
+            # Safety check: string Voc must not exceed inverter Vdcmax
+            if module_voc is not None and inverter_vdcmax is not None:
+                while target_mps > MIN_MODULES_PER_STRING and target_mps * module_voc > inverter_vdcmax:
+                    target_mps -= 1
+
             logger.debug(
-                f"Voltage-based string sizing: target={target_voltage:.0f}V "
-                f"({inverter_vdco:.0f}V × 0.8), "
+                f"Voltage-based string sizing: target Vdco={inverter_vdco:.0f}V, "
                 f"modules_per_string={target_mps} "
-                f"(string Vmp={target_mps * module_vmp:.0f}V)"
+                f"(string Vmp={target_mps * module_vmp:.0f}V, "
+                f"string Voc={target_mps * (module_voc or 0):.0f}V)"
             )
 
         total_modules = self._calculate_total_modules(dc_size_mw, module_wattage)
@@ -187,8 +196,16 @@ class StringCalculator:
             if config is not None and config.deviation_pct <= MAX_DEVIATION_PCT:
                 candidates.append(config)
 
-        # If no exact match, search adjusted totals within ±5%
-        if not candidates:
+        # Always search adjusted totals for the voltage target — the base total
+        # may not divide evenly by target_mps, but a nearby total will.
+        # Also search adjusted totals if no candidates found at base total.
+        search_adjusted = not candidates
+        if target_mps is not None:
+            has_target = any(c.modules_per_string == target_mps for c in candidates)
+            if not has_target:
+                search_adjusted = True
+
+        if search_adjusted:
             lower = int(base_total * 0.95)
             upper = int(base_total * 1.05) + 1
             for total in range(lower, upper):
@@ -226,5 +243,12 @@ class StringCalculator:
         if not candidates:
             return None
 
-        # Pick config with smallest deviation
+        # When voltage-targeted, prefer configs at the target mps over lower
+        # deviation at a different mps — wrong voltage kills inverter output.
+        if target_mps is not None:
+            at_target = [c for c in candidates if c.modules_per_string == target_mps]
+            if at_target:
+                return min(at_target, key=lambda c: c.deviation_pct)
+
+        # Fallback: pick config with smallest deviation
         return min(candidates, key=lambda c: c.deviation_pct)
