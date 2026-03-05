@@ -388,12 +388,11 @@ def generate_narrative(
             net_kwh = step["energy_kwh"]
 
     loss_steps = [s for s in waterfall_data if s["type"] == "loss"]
-    loss_steps_sorted = sorted(
-        loss_steps, key=lambda s: s["energy_kwh"], reverse=True
-    )
+    verbs = ["accounts for", "contributes", "represents"]
 
     sentences = []
-    for step in loss_steps_sorted:
+    for i, step in enumerate(loss_steps):
+        verb = verbs[i % len(verbs)]
         step_mwh = step["energy_kwh"] / 1000
         sub_parts = []
         for sub in step["sub_losses"]:
@@ -403,7 +402,7 @@ def generate_narrative(
                 )
         sub_text = ", ".join(sub_parts)
         sentence = (
-            f"{step['label']} accounts for {_fmt_int(step_mwh)} MWh "
+            f"{step['label']} {verb} {_fmt_int(step_mwh)} MWh "
             f"({_fmt_pct(step['loss_percent'])}%), comprising {sub_text}."
         )
         sentences.append(sentence)
@@ -411,7 +410,7 @@ def generate_narrative(
     loss_summary = (
         f"From a nominal DC energy of {_fmt_int(nominal_kwh / 1000)} MWh, "
         f"the system delivers {_fmt_int(net_kwh / 1000)} MWh after "
-        f"accounting for system losses. " + " ".join(sentences)
+        f"accounting for system losses.\n" + "\n".join(sentences)
     )
 
     total_chars = (
