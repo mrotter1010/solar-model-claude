@@ -46,6 +46,9 @@ class SummaryMetrics:
     # Timestamps
     simulation_timestamp: str
 
+    # PySAM loss data, scalars, and monthly arrays
+    loss_data: dict[str, object] | None = None
+
     # Errors/warnings
     errors: list[str] = field(default_factory=list)
 
@@ -214,6 +217,7 @@ class OutputWriter:
             performance_ratio=round(performance_ratio, 4),
             shading_pct_applied=shading_pct,
             simulation_timestamp=simulation_result.simulation_timestamp,
+            loss_data=simulation_result.loss_data,
         )
 
     def _write_timeseries(self, hourly_data: pd.DataFrame, filename_base: str) -> Path:

@@ -27,6 +27,7 @@ class SimulationResult:
     success: bool
     error_message: str | None = None
     hourly_data: pd.DataFrame | None = None
+    loss_data: dict[str, object] | None = None
     weather_year: int | None = None
     simulation_timestamp: str = field(default="", init=False)
 
@@ -77,6 +78,9 @@ class PySAMSimulator:
         # Extract timeseries data
         hourly_data = self._extract_timeseries(model_config, weather_year)
 
+        # Extract loss data, scalars, and monthly arrays for reporting
+        loss_data = self._extract_loss_data(outputs)
+
         logger.info(
             f"Simulation complete for {site.site_name}: "
             f"{len(hourly_data)} hourly records"
@@ -88,6 +92,7 @@ class PySAMSimulator:
             customer=site.customer,
             success=True,
             hourly_data=hourly_data,
+            loss_data=loss_data,
             weather_year=weather_year,
         )
 
@@ -130,6 +135,62 @@ class PySAMSimulator:
                 "inverter_efficiency": inv_eff,
             }
         )
+
+    @staticmethod
+    def _extract_loss_data(outputs: object) -> dict[str, object]:
+        """Extract annual energy totals, loss percentages, scalars, and monthly arrays.
+
+        Args:
+            outputs: PySAM model Outputs group after successful execution.
+
+        Returns:
+            Dict with categorized output values for reporting.
+        """
+
+        def _get(name: str, default: float = 0.0) -> float:
+            return float(getattr(outputs, name, default))
+
+        def _get_monthly(name: str) -> list[float]:
+            raw = getattr(outputs, name, None)
+            if raw is not None and hasattr(raw, "__len__") and len(raw) == 12:
+                return [float(v) for v in raw]
+            return [0.0] * 12
+
+        return {
+            # Annual energy totals (kWh)
+            "annual_dc_nominal": _get("annual_dc_nominal"),
+            "annual_dc_gross": _get("annual_dc_gross"),
+            "annual_dc_net": _get("annual_dc_net"),
+            "annual_ac_gross": _get("annual_ac_gross"),
+            "annual_energy": _get("annual_energy"),
+            # Annual loss percentages (%)
+            "annual_poa_shading_loss_percent": _get("annual_poa_shading_loss_percent"),
+            "annual_poa_soiling_loss_percent": _get("annual_poa_soiling_loss_percent"),
+            "annual_poa_cover_loss_percent": _get("annual_poa_cover_loss_percent"),
+            "annual_dc_module_loss_percent": _get("annual_dc_module_loss_percent"),
+            "annual_dc_mismatch_loss_percent": _get("annual_dc_mismatch_loss_percent"),
+            "annual_dc_diodes_loss_percent": _get("annual_dc_diodes_loss_percent"),
+            "annual_dc_wiring_loss_percent": _get("annual_dc_wiring_loss_percent"),
+            "annual_dc_nameplate_loss_percent": _get("annual_dc_nameplate_loss_percent"),
+            "annual_dc_tracking_loss_percent": _get("annual_dc_tracking_loss_percent"),
+            "annual_bifacial_electrical_mismatch_percent": _get(
+                "annual_bifacial_electrical_mismatch_percent"
+            ),
+            "annual_ac_inv_clip_loss_percent": _get("annual_ac_inv_clip_loss_percent"),
+            "annual_ac_inv_eff_loss_percent": _get("annual_ac_inv_eff_loss_percent"),
+            "annual_ac_wiring_loss_percent": _get("annual_ac_wiring_loss_percent"),
+            "annual_xfmr_loss_percent": _get("annual_xfmr_loss_percent"),
+            "annual_ac_perf_adj_loss_percent": _get("annual_ac_perf_adj_loss_percent"),
+            "annual_poa_rear_gain_percent": _get("annual_poa_rear_gain_percent"),
+            # Key scalars
+            "capacity_factor": _get("capacity_factor"),
+            "capacity_factor_ac": _get("capacity_factor_ac"),
+            "kwh_per_kw": _get("kwh_per_kw"),
+            "performance_ratio": _get("performance_ratio"),
+            # Monthly arrays (12-element lists)
+            "monthly_energy": _get_monthly("monthly_energy"),
+            "monthly_poa_eff": _get_monthly("monthly_poa_eff"),
+        }
 
     def _extract_weather_year(self, weather_file_path: Path | None) -> int | None:
         """Extract the weather year from a PySAM-format weather file.

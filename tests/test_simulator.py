@@ -76,6 +76,37 @@ def _make_mock_model_config(
     mock_model.Outputs.annual_energy = 876000.0
     mock_model.Outputs.capacity_factor = 30.0
 
+    # Loss data outputs for _extract_loss_data
+    mock_model.Outputs.annual_dc_nominal = 950000.0
+    mock_model.Outputs.annual_dc_gross = 920000.0
+    mock_model.Outputs.annual_dc_net = 900000.0
+    mock_model.Outputs.annual_ac_gross = 890000.0
+    mock_model.Outputs.annual_poa_shading_loss_percent = 1.5
+    mock_model.Outputs.annual_poa_soiling_loss_percent = 5.0
+    mock_model.Outputs.annual_poa_cover_loss_percent = 0.7
+    mock_model.Outputs.annual_dc_module_loss_percent = 9.5
+    mock_model.Outputs.annual_dc_mismatch_loss_percent = 1.5
+    mock_model.Outputs.annual_dc_diodes_loss_percent = 0.5
+    mock_model.Outputs.annual_dc_wiring_loss_percent = 1.5
+    mock_model.Outputs.annual_dc_nameplate_loss_percent = 1.0
+    mock_model.Outputs.annual_dc_tracking_loss_percent = 0.0
+    mock_model.Outputs.annual_bifacial_electrical_mismatch_percent = 0.2
+    mock_model.Outputs.annual_ac_inv_clip_loss_percent = 0.7
+    mock_model.Outputs.annual_ac_inv_eff_loss_percent = 1.4
+    mock_model.Outputs.annual_ac_wiring_loss_percent = 1.5
+    mock_model.Outputs.annual_xfmr_loss_percent = 0.0
+    mock_model.Outputs.annual_ac_perf_adj_loss_percent = 3.0
+    mock_model.Outputs.annual_poa_rear_gain_percent = 3.3
+    mock_model.Outputs.capacity_factor_ac = 38.0
+    mock_model.Outputs.kwh_per_kw = 2200.0
+    mock_model.Outputs.performance_ratio = 0.77
+    mock_model.Outputs.monthly_energy = tuple(
+        [70000.0 + i * 1000 for i in range(12)]
+    )
+    mock_model.Outputs.monthly_poa_eff = tuple(
+        [800000.0 + i * 10000 for i in range(12)]
+    )
+
     return PySAMModelConfig(
         model=mock_model,
         site_config=site_config,
