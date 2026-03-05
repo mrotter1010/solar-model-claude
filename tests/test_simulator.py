@@ -106,6 +106,10 @@ def _make_mock_model_config(
     mock_model.Outputs.monthly_poa_eff = tuple(
         [800000.0 + i * 10000 for i in range(12)]
     )
+    # GHI timeseries — mix of daylight and nighttime hours
+    mock_model.Outputs.gh = tuple(
+        [0.0] * 2190 + [500.0] * 4380 + [0.0] * 2190  # 50% daylight at 500 W/m²
+    )
 
     return PySAMModelConfig(
         model=mock_model,

@@ -13,6 +13,54 @@ MONTH_LABELS = [
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ]
 
+# Bounding boxes for US states with utility-scale solar potential.
+# Format: (state_name, min_lat, max_lat, min_lon, max_lon)
+_US_STATE_BOXES: list[tuple[str, float, float, float, float]] = [
+    ("Arizona", 31.3, 37.0, -114.8, -109.0),
+    ("California", 32.5, 42.0, -124.4, -114.1),
+    ("Colorado", 37.0, 41.0, -109.1, -102.0),
+    ("Florida", 24.5, 31.0, -87.6, -80.0),
+    ("Georgia", 30.4, 35.0, -85.6, -80.8),
+    ("Illinois", 37.0, 42.5, -91.5, -87.5),
+    ("Indiana", 37.8, 41.8, -88.1, -84.8),
+    ("Massachusetts", 41.2, 42.9, -73.5, -69.9),
+    ("Michigan", 41.7, 48.3, -90.4, -82.4),
+    ("Minnesota", 43.5, 49.4, -97.2, -89.5),
+    ("Nevada", 35.0, 42.0, -120.0, -114.0),
+    ("New Jersey", 38.9, 41.4, -75.6, -73.9),
+    ("New Mexico", 31.3, 37.0, -109.1, -103.0),
+    ("New York", 40.5, 45.0, -79.8, -71.9),
+    ("North Carolina", 33.8, 36.6, -84.3, -75.5),
+    ("Ohio", 38.4, 42.0, -84.8, -80.5),
+    ("Oregon", 42.0, 46.3, -124.6, -116.5),
+    ("Pennsylvania", 39.7, 42.3, -80.5, -74.7),
+    ("Tennessee", 35.0, 36.7, -90.3, -81.6),
+    ("Texas", 25.8, 36.5, -106.6, -93.5),
+    ("Utah", 37.0, 42.0, -114.1, -109.0),
+    ("Virginia", 36.5, 39.5, -83.7, -75.2),
+    ("Washington", 45.5, 49.0, -124.8, -116.9),
+]
+
+
+def get_us_state_from_coords(latitude: float, longitude: float) -> str:
+    """Look up US state from latitude/longitude using bounding boxes.
+
+    Args:
+        latitude: Site latitude in decimal degrees.
+        longitude: Site longitude in decimal degrees.
+
+    Returns:
+        State name if coordinates fall within a known bounding box,
+        or "Unknown" if no match.
+    """
+    for state, min_lat, max_lat, min_lon, max_lon in _US_STATE_BOXES:
+        if min_lat <= latitude <= max_lat and min_lon <= longitude <= max_lon:
+            return state
+    logger.warning(
+        f"No US state match for coordinates ({latitude}, {longitude})"
+    )
+    return "Unknown"
+
 
 def extract_monthly_production(loss_data: dict) -> dict | None:
     """Extract monthly energy production in MWh from loss_data.
@@ -195,11 +243,15 @@ def extract_site_summary(site_config: dict, loss_data: dict) -> dict:
     dc_mw = float(site_config["dc_size_mw"])
     ac_mw = float(site_config["ac_installed_mw"])
 
+    lat = float(site_config["latitude"])
+    lon = float(site_config["longitude"])
+
     return {
         "site_name": site_config["site_name"],
         "customer": site_config["customer"],
-        "latitude": float(site_config["latitude"]),
-        "longitude": float(site_config["longitude"]),
+        "latitude": lat,
+        "longitude": lon,
+        "state": get_us_state_from_coords(lat, lon),
         "dc_capacity_mw": dc_mw,
         "ac_capacity_mw": ac_mw,
         "dc_ac_ratio": round(dc_mw / ac_mw, 2),
@@ -215,5 +267,7 @@ def extract_site_summary(site_config: dict, loss_data: dict) -> dict:
         "capacity_factor_pct": float(loss_data.get("capacity_factor", 0.0)),
         "specific_yield_kwh_kwp": float(loss_data.get("kwh_per_kw", 0.0)),
         "performance_ratio_pct": float(loss_data.get("performance_ratio", 0.0)) * 100,
+        "avg_daytime_ghi_wm2": float(loss_data.get("avg_daytime_ghi_wm2", 0.0)),
+        "annual_ghi_kwh_m2": float(loss_data.get("annual_ghi_kwh_m2", 0.0)),
         "weather_year": "2023",
     }

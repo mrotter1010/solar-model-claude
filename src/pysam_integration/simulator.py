@@ -156,6 +156,19 @@ class PySAMSimulator:
                 return [float(v) for v in raw]
             return [0.0] * 12
 
+        # GHI timeseries: average daytime GHI and annual total
+        avg_daytime_ghi = 0.0
+        annual_ghi_kwh_m2 = 0.0
+        gh_raw = getattr(outputs, "gh", None)
+        if gh_raw is not None and hasattr(gh_raw, "__len__") and len(gh_raw) >= 8760:
+            gh_values = [float(v) for v in gh_raw]
+            annual_ghi_kwh_m2 = sum(gh_values) / 1000  # Wh/m² → kWh/m²
+            daylight = [v for v in gh_values if v > 0]
+            if daylight:
+                avg_daytime_ghi = sum(daylight) / len(daylight)
+        else:
+            logger.warning("GHI timeseries (gh) not available from PySAM outputs")
+
         return {
             # Annual energy totals (kWh)
             "annual_dc_nominal": _get("annual_dc_nominal"),
@@ -190,6 +203,9 @@ class PySAMSimulator:
             # Monthly arrays (12-element lists)
             "monthly_energy": _get_monthly("monthly_energy"),
             "monthly_poa_eff": _get_monthly("monthly_poa_eff"),
+            # GHI metrics
+            "avg_daytime_ghi_wm2": avg_daytime_ghi,
+            "annual_ghi_kwh_m2": annual_ghi_kwh_m2,
         }
 
     def _extract_weather_year(self, weather_file_path: Path | None) -> int | None:

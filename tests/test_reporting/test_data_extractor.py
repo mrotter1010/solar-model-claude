@@ -6,6 +6,7 @@ from src.reporting.data_extractor import (
     extract_loss_waterfall,
     extract_monthly_production,
     extract_site_summary,
+    get_us_state_from_coords,
 )
 
 
@@ -56,6 +57,9 @@ def _make_loss_data(**overrides: object) -> dict:
             23000000.0, 20900000.0, 21200000.0, 18900000.0,
             18200000.0, 15100000.0, 11200000.0, 9800000.0,
         ],
+        # GHI metrics
+        "avg_daytime_ghi_wm2": 490.5,
+        "annual_ghi_kwh_m2": 2131.8,
     }
     data.update(overrides)
     return data
@@ -247,13 +251,14 @@ class TestExtractSiteSummary:
         result = extract_site_summary(_make_site_config(), _make_loss_data())
 
         expected_keys = {
-            "site_name", "customer", "latitude", "longitude",
+            "site_name", "customer", "latitude", "longitude", "state",
             "dc_capacity_mw", "ac_capacity_mw", "dc_ac_ratio",
             "racking", "tilt", "azimuth", "gcr",
             "module_model", "module_count", "bifacial",
             "inverter_model", "annual_energy_mwh",
             "capacity_factor_pct", "specific_yield_kwh_kwp",
-            "performance_ratio_pct", "weather_year",
+            "performance_ratio_pct", "avg_daytime_ghi_wm2",
+            "annual_ghi_kwh_m2", "weather_year",
         }
         assert set(result.keys()) == expected_keys
 
@@ -292,3 +297,41 @@ class TestExtractSiteSummary:
         assert result["bifacial"] is True
         assert result["module_count"] == 2
         assert result["weather_year"] == "2023"
+
+    def test_state_from_coordinates(self) -> None:
+        """Phoenix coordinates resolve to Arizona."""
+        result = extract_site_summary(_make_site_config(), _make_loss_data())
+
+        assert result["state"] == "Arizona"
+
+    def test_ghi_fields_present(self) -> None:
+        """GHI metrics are included from loss_data."""
+        result = extract_site_summary(_make_site_config(), _make_loss_data())
+
+        assert result["avg_daytime_ghi_wm2"] == pytest.approx(490.5)
+        assert result["annual_ghi_kwh_m2"] == pytest.approx(2131.8)
+
+
+# ---------------------------------------------------------------------------
+# get_us_state_from_coords
+# ---------------------------------------------------------------------------
+
+
+class TestGetUsStateFromCoords:
+    """Tests for US state bounding-box lookup."""
+
+    def test_phoenix_arizona(self) -> None:
+        """Phoenix, AZ coordinates return Arizona."""
+        assert get_us_state_from_coords(33.48, -112.07) == "Arizona"
+
+    def test_no_match_returns_unknown(self) -> None:
+        """Coordinates outside US return Unknown."""
+        assert get_us_state_from_coords(0.0, 0.0) == "Unknown"
+
+    def test_dallas_texas(self) -> None:
+        """Dallas, TX coordinates return Texas."""
+        assert get_us_state_from_coords(32.78, -96.80) == "Texas"
+
+    def test_miami_florida(self) -> None:
+        """Miami, FL coordinates return Florida."""
+        assert get_us_state_from_coords(25.76, -80.19) == "Florida"
