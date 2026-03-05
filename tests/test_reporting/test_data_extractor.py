@@ -6,6 +6,7 @@ from src.reporting.data_extractor import (
     extract_loss_waterfall,
     extract_monthly_production,
     extract_site_summary,
+    generate_narrative,
     get_us_state_from_coords,
 )
 
@@ -335,3 +336,111 @@ class TestGetUsStateFromCoords:
     def test_miami_florida(self) -> None:
         """Miami, FL coordinates return Florida."""
         assert get_us_state_from_coords(25.76, -80.19) == "Florida"
+
+
+# ---------------------------------------------------------------------------
+# generate_narrative
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateNarrative:
+    """Tests for narrative text generation."""
+
+    def _build_inputs(self, **site_overrides: object) -> tuple[dict, dict, list[dict]]:
+        """Build site_summary, loss_data, and waterfall_data from fixtures."""
+        site_config = _make_site_config(**site_overrides)
+        loss_data = _make_loss_data()
+        site_summary = extract_site_summary(site_config, loss_data)
+        waterfall_data = extract_loss_waterfall(loss_data)
+        return site_summary, loss_data, waterfall_data
+
+    def test_returns_four_keys(self) -> None:
+        """Output dict has exactly 4 expected keys."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert set(result.keys()) == {
+            "site_overview", "solar_resource",
+            "production_summary", "loss_summary",
+        }
+
+    def test_all_values_non_empty_strings(self) -> None:
+        """Every narrative value is a non-empty string."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        for key, value in result.items():
+            assert isinstance(value, str), f"{key} is not a string"
+            assert len(value) > 0, f"{key} is empty"
+
+    def test_site_overview_contains_site_name(self) -> None:
+        """site_overview paragraph includes the site name."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "SiteTest_Phoenix" in result["site_overview"]
+
+    def test_site_overview_bifacial(self) -> None:
+        """site_overview says 'bifacial' for bifacial site."""
+        site_summary, loss_data, waterfall_data = self._build_inputs(bifacial=True)
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "bifacial" in result["site_overview"]
+
+    def test_site_overview_monofacial(self) -> None:
+        """site_overview says 'monofacial' for non-bifacial site."""
+        site_summary, loss_data, waterfall_data = self._build_inputs(bifacial=False)
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "monofacial" in result["site_overview"]
+
+    def test_solar_resource_contains_unit(self) -> None:
+        """solar_resource includes kWh/m\u00b2 unit."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "kWh/m\u00b2" in result["solar_resource"]
+
+    def test_production_summary_contains_mwh(self) -> None:
+        """production_summary mentions MWh."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "MWh" in result["production_summary"]
+
+    def test_loss_summary_contains_nominal(self) -> None:
+        """loss_summary mentions nominal DC energy."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "nominal DC energy" in result["loss_summary"]
+
+    def test_loss_summary_contains_mwh(self) -> None:
+        """loss_summary mentions MWh."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "MWh" in result["loss_summary"]
+
+    def test_loss_summary_mentions_all_loss_groups(self) -> None:
+        """loss_summary includes every loss group label from waterfall_data."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        loss_labels = [
+            s["label"] for s in waterfall_data if s["type"] == "loss"
+        ]
+        for label in loss_labels:
+            assert label in result["loss_summary"], (
+                f"Missing loss group '{label}' in loss_summary"
+            )

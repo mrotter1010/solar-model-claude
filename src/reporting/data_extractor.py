@@ -4,6 +4,8 @@ Transforms raw loss_data dicts from SimulationResult into clean structures
 suitable for matplotlib charts and reportlab tables in the PDF report.
 """
 
+from __future__ import annotations
+
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -270,4 +272,157 @@ def extract_site_summary(site_config: dict, loss_data: dict) -> dict:
         "avg_daytime_ghi_wm2": float(loss_data.get("avg_daytime_ghi_wm2", 0.0)),
         "annual_ghi_kwh_m2": float(loss_data.get("annual_ghi_kwh_m2", 0.0)),
         "weather_year": "2023",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
+
+
+def _fmt_int(value: float) -> str:
+    """Format a number as integer with comma separators."""
+    return f"{int(round(value)):,}"
+
+
+def _fmt_pct(value: float) -> str:
+    """Format a number as percentage with 1 decimal place."""
+    return f"{value:.1f}"
+
+
+# ---------------------------------------------------------------------------
+# Narrative text generation
+# ---------------------------------------------------------------------------
+
+
+def generate_narrative(
+    site_summary: dict, loss_data: dict, waterfall_data: list[dict]
+) -> dict:
+    """Generate template-based narrative paragraphs for the PDF report.
+
+    Args:
+        site_summary: Output of extract_site_summary() — flat dict with
+            site metadata, performance metrics, and weather data.
+        loss_data: Raw loss_data dict from PySAM SimulationResult.
+        waterfall_data: Output of extract_loss_waterfall() — ordered list
+            of waterfall steps with label, energy_kwh, loss_percent, type,
+            and sub_losses.
+
+    Returns:
+        Dict with four string keys: site_overview, solar_resource,
+        production_summary, loss_summary.
+    """
+    # --- site_overview ---
+    bifacial_text = "bifacial" if site_summary["bifacial"] else "monofacial"
+
+    racking = site_summary["racking"]
+    is_tracker = "track" in racking.lower()
+    racking_text = "single-axis tracker" if is_tracker else "fixed-tilt"
+
+    tilt = site_summary["tilt"]
+    azimuth = site_summary["azimuth"]
+    if is_tracker:
+        tilt_text = f"a \u00b1{_fmt_pct(tilt)}\u00b0 tracker rotation limit"
+    else:
+        tilt_text = (
+            f"{_fmt_pct(tilt)}\u00b0 fixed tilt at "
+            f"{_fmt_pct(azimuth)}\u00b0 azimuth"
+        )
+
+    lat = site_summary["latitude"]
+    lon = site_summary["longitude"]
+
+    site_overview = (
+        f"{site_summary['site_name']} is a proposed "
+        f"{_fmt_pct(site_summary['dc_capacity_mw'])} MW-DC / "
+        f"{_fmt_pct(site_summary['ac_capacity_mw'])} MW-AC solar PV facility "
+        f"located in {site_summary['state']} "
+        f"({lat}\u00b0N, {abs(lon)}\u00b0W). "
+        f"The system uses {racking_text} mounting with "
+        f"{site_summary['module_model']} {bifacial_text} modules and "
+        f"{site_summary['inverter_model']} inverters, "
+        f"at a DC-to-AC ratio of {site_summary['dc_ac_ratio']}. "
+        f"The array is configured with a ground coverage ratio of "
+        f"{site_summary['gcr']} and {tilt_text}."
+    )
+
+    # --- solar_resource ---
+    annual_ghi = site_summary["annual_ghi_kwh_m2"]
+    if annual_ghi > 2000:
+        climate_note = "This represents an excellent solar resource."
+    elif annual_ghi > 1600:
+        climate_note = "This represents a good solar resource."
+    elif annual_ghi > 1200:
+        climate_note = "This represents a moderate solar resource."
+    else:
+        climate_note = "This represents a below-average solar resource."
+
+    solar_resource = (
+        f"Based on {site_summary['weather_year']} NSRDB satellite-derived "
+        f"weather data, the site receives an annual global horizontal "
+        f"irradiance of {_fmt_int(annual_ghi)} kWh/m\u00b2, with an average "
+        f"daytime intensity of "
+        f"{_fmt_int(site_summary['avg_daytime_ghi_wm2'])} W/m\u00b2. "
+        f"{climate_note}"
+    )
+
+    # --- production_summary ---
+    production_summary = (
+        f"The system is projected to produce "
+        f"{_fmt_int(site_summary['annual_energy_mwh'])} MWh of net AC energy "
+        f"annually, corresponding to a capacity factor of "
+        f"{_fmt_pct(site_summary['capacity_factor_pct'])}% and a specific "
+        f"yield of "
+        f"{_fmt_pct(site_summary['specific_yield_kwh_kwp'])} kWh/kWp. "
+        f"The overall performance ratio is "
+        f"{_fmt_pct(site_summary['performance_ratio_pct'])}%."
+    )
+
+    # --- loss_summary ---
+    nominal_kwh = 0.0
+    net_kwh = 0.0
+    for step in waterfall_data:
+        if step["type"] == "start":
+            nominal_kwh = step["energy_kwh"]
+        elif step["type"] == "end":
+            net_kwh = step["energy_kwh"]
+
+    loss_steps = [s for s in waterfall_data if s["type"] == "loss"]
+    loss_steps_sorted = sorted(
+        loss_steps, key=lambda s: s["energy_kwh"], reverse=True
+    )
+
+    sentences = []
+    for step in loss_steps_sorted:
+        step_mwh = step["energy_kwh"] / 1000
+        sub_parts = []
+        for sub in step["sub_losses"]:
+            if round(sub["percent"], 1) != 0.0:
+                sub_parts.append(
+                    f"{sub['label']} ({_fmt_pct(sub['percent'])}%)"
+                )
+        sub_text = ", ".join(sub_parts)
+        sentence = (
+            f"{step['label']} accounts for {_fmt_int(step_mwh)} MWh "
+            f"({_fmt_pct(step['loss_percent'])}%), comprising {sub_text}."
+        )
+        sentences.append(sentence)
+
+    loss_summary = (
+        f"From a nominal DC energy of {_fmt_int(nominal_kwh / 1000)} MWh, "
+        f"the system delivers {_fmt_int(net_kwh / 1000)} MWh after "
+        f"accounting for system losses. " + " ".join(sentences)
+    )
+
+    total_chars = (
+        len(site_overview) + len(solar_resource)
+        + len(production_summary) + len(loss_summary)
+    )
+    logger.info(f"Generated narrative: {total_chars} chars")
+
+    return {
+        "site_overview": site_overview,
+        "solar_resource": solar_resource,
+        "production_summary": production_summary,
+        "loss_summary": loss_summary,
     }
