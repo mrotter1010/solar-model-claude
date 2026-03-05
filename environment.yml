@@ -18,3 +18,4 @@ dependencies:
     - mypy>=1.5
     - ruff>=0.1
     - colorlog>=6.7
+    - matplotlib>=3.8
