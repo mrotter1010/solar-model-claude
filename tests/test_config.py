@@ -334,3 +334,168 @@ def test_negative_dc_size_rejected_direct() -> None:
             module_mismatch_percent=0.0,
             lid_percent=0.0,
         )
+
+
+# --- Report Field ---
+
+
+def test_report_defaults_to_false_when_missing(sample_valid_csv: Path) -> None:
+    """Report field defaults to False when column is absent from CSV."""
+    configs = load_config(sample_valid_csv)
+
+    for site in configs:
+        assert site.report is False
+
+
+def test_report_true_from_csv(tmp_path: Path) -> None:
+    """Report field parses TRUE from CSV correctly."""
+    import pandas as pd
+
+    csv_path = tmp_path / "report_test.csv"
+    data = {
+        "Run Name": ["Test1"],
+        "Site Name": ["TestSite"],
+        "Customer": ["TestCo"],
+        "Latitude": [33.483],
+        "Longitude": [-112.073],
+        "DC Size (MW)": [13],
+        "AC Installed (MW)": [10],
+        "AC POI (MW)": [10],
+        "Racking": ["tracker"],
+        "Tilt": [60],
+        "Azimuth": [180],
+        "Module Orientation": ["portrait"],
+        "Number of Modules": [2],
+        "Ground Clearance Height (m)": [1.8],
+        "Panel Model": ["Test Panel"],
+        "Bifacial": [True],
+        "Inverter Model": ["Test Inverter"],
+        "GCR": [0.34],
+        "Shading (%)": [1],
+        "DC Wiring Loss (%)": [1.5],
+        "AC Wiring Loss (%)": [1.5],
+        "Transformer Losses (%)": [0],
+        "Degradation (%)": [0.3],
+        "Availability (%)": [98],
+        "Module Mismatch (%)": [1.5],
+        "LID(%)": [1],
+        "Report": ["TRUE"],
+    }
+    pd.DataFrame(data).to_csv(csv_path, index=False)
+
+    configs = load_config(csv_path)
+    assert configs[0].report is True
+
+
+def test_report_false_from_csv(tmp_path: Path) -> None:
+    """Report field parses FALSE from CSV correctly."""
+    import pandas as pd
+
+    csv_path = tmp_path / "report_test.csv"
+    data = {
+        "Run Name": ["Test1"],
+        "Site Name": ["TestSite"],
+        "Customer": ["TestCo"],
+        "Latitude": [33.483],
+        "Longitude": [-112.073],
+        "DC Size (MW)": [13],
+        "AC Installed (MW)": [10],
+        "AC POI (MW)": [10],
+        "Racking": ["tracker"],
+        "Tilt": [60],
+        "Azimuth": [180],
+        "Module Orientation": ["portrait"],
+        "Number of Modules": [2],
+        "Ground Clearance Height (m)": [1.8],
+        "Panel Model": ["Test Panel"],
+        "Bifacial": [True],
+        "Inverter Model": ["Test Inverter"],
+        "GCR": [0.34],
+        "Shading (%)": [1],
+        "DC Wiring Loss (%)": [1.5],
+        "AC Wiring Loss (%)": [1.5],
+        "Transformer Losses (%)": [0],
+        "Degradation (%)": [0.3],
+        "Availability (%)": [98],
+        "Module Mismatch (%)": [1.5],
+        "LID(%)": [1],
+        "Report": ["FALSE"],
+    }
+    pd.DataFrame(data).to_csv(csv_path, index=False)
+
+    configs = load_config(csv_path)
+    assert configs[0].report is False
+
+
+def test_report_empty_cell_defaults_to_false(tmp_path: Path) -> None:
+    """Report field defaults to False when CSV cell is empty."""
+    import pandas as pd
+
+    csv_path = tmp_path / "report_test.csv"
+    data = {
+        "Run Name": ["Test1"],
+        "Site Name": ["TestSite"],
+        "Customer": ["TestCo"],
+        "Latitude": [33.483],
+        "Longitude": [-112.073],
+        "DC Size (MW)": [13],
+        "AC Installed (MW)": [10],
+        "AC POI (MW)": [10],
+        "Racking": ["tracker"],
+        "Tilt": [60],
+        "Azimuth": [180],
+        "Module Orientation": ["portrait"],
+        "Number of Modules": [2],
+        "Ground Clearance Height (m)": [1.8],
+        "Panel Model": ["Test Panel"],
+        "Bifacial": [True],
+        "Inverter Model": ["Test Inverter"],
+        "GCR": [0.34],
+        "Shading (%)": [1],
+        "DC Wiring Loss (%)": [1.5],
+        "AC Wiring Loss (%)": [1.5],
+        "Transformer Losses (%)": [0],
+        "Degradation (%)": [0.3],
+        "Availability (%)": [98],
+        "Module Mismatch (%)": [1.5],
+        "LID(%)": [1],
+        "Report": [None],  # Empty cell → NaN → None
+    }
+    pd.DataFrame(data).to_csv(csv_path, index=False)
+
+    configs = load_config(csv_path)
+    assert configs[0].report is False
+
+
+def test_report_direct_construction() -> None:
+    """Report field works with direct SiteConfig construction."""
+    site = SiteConfig(
+        run_name="Test",
+        site_name="TestSite",
+        customer="TestCo",
+        latitude=33.0,
+        longitude=-112.0,
+        dc_size_mw=10.0,
+        ac_installed_mw=8.0,
+        ac_poi_mw=8.0,
+        racking="tracker",
+        tilt=25.0,
+        azimuth=180.0,
+        module_orientation="portrait",
+        number_of_modules=2,
+        ground_clearance_height_m=1.5,
+        panel_model="Test Panel",
+        bifacial=True,
+        inverter_model="Test Inverter",
+        gcr=0.4,
+        shading_percent=0.0,
+        dc_wiring_loss_percent=0.0,
+        ac_wiring_loss_percent=0.0,
+        transformer_losses_percent=0.0,
+        degradation_percent=0.0,
+        availability_percent=0.0,
+        module_mismatch_percent=0.0,
+        lid_percent=0.0,
+        report=True,
+    )
+    assert site.report is True

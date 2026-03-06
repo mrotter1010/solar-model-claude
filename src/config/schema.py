@@ -52,6 +52,9 @@ class SiteConfig(BaseModel):
     # Layout
     gcr: float = Field(gt=0, lt=1)
 
+    # Reporting
+    report: bool = False
+
     # Losses (all percentages 0-100)
     shading_percent: float = Field(ge=0, le=100)
     dc_wiring_loss_percent: float = Field(ge=0, le=100)
@@ -61,6 +64,20 @@ class SiteConfig(BaseModel):
     availability_percent: float = Field(ge=0, le=100)
     module_mismatch_percent: float = Field(ge=0, le=100)
     lid_percent: float = Field(ge=0, le=100)
+
+    @field_validator("report", mode="before")
+    @classmethod
+    def validate_report(cls, v: object) -> bool:
+        """Coerce report field from CSV to bool.
+
+        Handles None (empty cell), empty string, and string TRUE/FALSE
+        values that pandas may produce when reading CSV columns.
+        """
+        if v is None or v == "":
+            return False
+        if isinstance(v, str):
+            return v.strip().upper() in ("TRUE", "YES", "1")
+        return bool(v)
 
     @field_validator("racking")
     @classmethod
