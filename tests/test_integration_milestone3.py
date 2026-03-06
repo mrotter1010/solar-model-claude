@@ -54,6 +54,49 @@ def _make_success_result(site: SiteConfig, ac_value: float = 100.0) -> Simulatio
     )
 
 
+def _make_loss_data() -> dict:
+    """Create a loss_data dict matching Phoenix inventory values."""
+    return {
+        "annual_dc_nominal": 35795452.0,
+        "annual_dc_gross": 32400224.0,
+        "annual_dc_net": 30965547.0,
+        "annual_ac_gross": 30284794.0,
+        "annual_energy": 28935577.0,
+        "annual_poa_shading_loss_percent": 1.53,
+        "annual_poa_soiling_loss_percent": 5.0,
+        "annual_poa_cover_loss_percent": 0.68,
+        "annual_dc_module_loss_percent": 9.48,
+        "annual_dc_mismatch_loss_percent": 1.5,
+        "annual_dc_diodes_loss_percent": 0.5,
+        "annual_dc_wiring_loss_percent": 1.5,
+        "annual_dc_nameplate_loss_percent": 1.0,
+        "annual_dc_tracking_loss_percent": 0.0,
+        "annual_bifacial_electrical_mismatch_percent": 0.17,
+        "annual_ac_inv_clip_loss_percent": 0.69,
+        "annual_ac_inv_eff_loss_percent": 1.41,
+        "annual_ac_wiring_loss_percent": 1.5,
+        "annual_xfmr_loss_percent": 0.0,
+        "annual_ac_perf_adj_loss_percent": 3.0,
+        "annual_poa_rear_gain_percent": 3.32,
+        "capacity_factor": 25.41,
+        "capacity_factor_ac": 32.34,
+        "kwh_per_kw": 2225.81,
+        "performance_ratio": 0.7676,
+        "monthly_energy": [
+            1800000.0, 2000000.0, 2400000.0, 2600000.0,
+            2900000.0, 3100000.0, 3200000.0, 3000000.0,
+            2700000.0, 2400000.0, 1900000.0, 1800000.0,
+        ],
+        "monthly_poa_eff": [
+            8800000.0, 10100000.0, 15100000.0, 20500000.0,
+            23000000.0, 20900000.0, 21200000.0, 18900000.0,
+            18200000.0, 15100000.0, 11200000.0, 9800000.0,
+        ],
+        "avg_daytime_ghi_wm2": 490.5,
+        "annual_ghi_kwh_m2": 2131.8,
+    }
+
+
 def _make_failure_result(site: SiteConfig) -> SimulationResult:
     """Create a failed SimulationResult for a given site."""
     return SimulationResult(
@@ -256,6 +299,101 @@ class TestMixedSuccessFailure:
         assert len(results["timeseries_files"]) == 2
         assert len(results["summary_files"]) == 2
         assert len(results["error_files"]) == 1
+
+
+def _make_csv_with_report(tmp_path: Path, report_value: str) -> Path:
+    """Create a test CSV based on single_row_test.csv with a Report column.
+
+    Args:
+        tmp_path: Temporary directory for the CSV.
+        report_value: Value for the Report column (e.g. "TRUE", "FALSE").
+
+    Returns:
+        Path to the generated CSV file.
+    """
+    import pandas as pd
+
+    df = pd.read_csv(SINGLE_ROW_CSV)
+    df["Report"] = report_value
+    csv_path = tmp_path / "report_test.csv"
+    df.to_csv(csv_path, index=False)
+    return csv_path
+
+
+class TestReportGeneration:
+    """Report generation — verify PDF created when report=True."""
+
+    @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
+    def test_report_true_creates_pdf(self, mock_sim, tmp_path):
+        """When report=True and simulation succeeds with loss_data, a PDF is created."""
+        # Arrange: create CSV with Report=TRUE
+        csv_path = _make_csv_with_report(tmp_path, "TRUE")
+        sites = load_config(csv_path)
+        site = sites[0]
+        assert site.report is True
+
+        # Build a result with loss_data so report generation can proceed
+        result = _make_success_result(site)
+        result.loss_data = _make_loss_data()
+        mock_sim.return_value = result
+
+        # Act
+        pipeline = SolarModelingPipeline(output_dir=tmp_path)
+        results = pipeline.run(csv_path, skip_climate=True)
+
+        # Assert: simulation succeeded and report was generated
+        assert results["successful"] == 1
+        assert len(results["report_files"]) == 1
+        report_path = results["report_files"][0]
+        assert report_path.exists()
+        assert report_path.stat().st_size > 0
+        assert report_path.suffix == ".pdf"
+
+    @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
+    def test_report_false_no_pdf(self, mock_sim, tmp_path):
+        """When report=FALSE, no PDF is generated even with loss_data."""
+        # Arrange: create CSV with Report=FALSE
+        csv_path = _make_csv_with_report(tmp_path, "FALSE")
+        sites = load_config(csv_path)
+        site = sites[0]
+        assert site.report is False
+
+        result = _make_success_result(site)
+        result.loss_data = _make_loss_data()
+        mock_sim.return_value = result
+
+        # Act
+        pipeline = SolarModelingPipeline(output_dir=tmp_path)
+        results = pipeline.run(csv_path, skip_climate=True)
+
+        # Assert: no report files
+        assert results["successful"] == 1
+        assert len(results["report_files"]) == 0
+        reports_dir = tmp_path / "reports"
+        assert not reports_dir.exists() or len(list(reports_dir.glob("*.pdf"))) == 0
+
+    @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
+    def test_report_failure_does_not_crash_pipeline(self, mock_sim, tmp_path):
+        """If report generation fails, pipeline still completes with outputs."""
+        # Arrange: create CSV with Report=TRUE
+        csv_path = _make_csv_with_report(tmp_path, "TRUE")
+
+        sites = load_config(csv_path)
+        site = sites[0]
+
+        # Provide loss_data missing monthly_energy so report will fail
+        result = _make_success_result(site)
+        result.loss_data = {"annual_energy": 1000.0}  # Missing required keys
+        mock_sim.return_value = result
+
+        # Act
+        pipeline = SolarModelingPipeline(output_dir=tmp_path)
+        results = pipeline.run(csv_path, skip_climate=True)
+
+        # Assert: simulation succeeded, report failed gracefully
+        assert results["successful"] == 1
+        assert len(results["timeseries_files"]) == 1
+        assert len(results["report_files"]) == 0
 
 
 class TestArtifactGeneration:

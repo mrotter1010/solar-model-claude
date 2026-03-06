@@ -11,6 +11,7 @@ from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import load_config
 from src.config.schema import SiteConfig
 from src.outputs.output_writer import OutputWriter
+from src.reporting.report_generator import generate_report
 from src.pysam_integration.cec_database import CECDatabase
 from src.pysam_integration.model_configurator import ModelConfigurator
 from src.pysam_integration.simulator import BatchSimulator, PySAMSimulator
@@ -153,6 +154,8 @@ class SolarModelingPipeline:
         # Build a lookup from site_name to SiteConfig for output writing
         site_lookup = {s.site_name: s for s in site_configs}
 
+        report_files: list[Path] = []
+
         for result in successful:
             site = site_lookup[result.site_name]
             ts_path, summary_path = self.output_writer.write_outputs(
@@ -163,6 +166,27 @@ class SolarModelingPipeline:
             if ts_path is not None:
                 timeseries_files.append(ts_path)
             summary_files.append(summary_path)
+
+            # Generate PDF report if requested and loss_data is available
+            if site.report and result.loss_data:
+                reports_dir = self.output_dir / "reports"
+                try:
+                    report_path = generate_report(
+                        site_config=site.model_dump(),
+                        loss_data=result.loss_data,
+                        output_dir=reports_dir,
+                    )
+                    if report_path is not None:
+                        report_files.append(report_path)
+                        logger.info(f"Report generated: {report_path}")
+                    else:
+                        logger.warning(
+                            f"Report generation returned None for {site.site_name}"
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        f"Report generation failed for {site.site_name}: {exc}"
+                    )
 
         for result in failed:
             site = site_lookup[result.site_name]
@@ -186,4 +210,5 @@ class SolarModelingPipeline:
             "timeseries_files": timeseries_files,
             "summary_files": summary_files,
             "error_files": error_files,
+            "report_files": report_files,
         }
