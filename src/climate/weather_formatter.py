@@ -51,7 +51,7 @@ class WeatherFormatter:
         nsrdb_csv: str,
         lat: float,
         lon: float,
-        precipitation: pd.Series | None = None,
+        snow_depth_cm: list[float] | None = None,
     ) -> tuple[pd.DataFrame, dict[str, float]]:
         """Parse NSRDB CSV and format for PySAM consumption.
 
@@ -62,8 +62,8 @@ class WeatherFormatter:
             nsrdb_csv: Raw CSV string from NSRDB API.
             lat: Site latitude (for logging/error context).
             lon: Site longitude (for logging/error context).
-            precipitation: Optional hourly precipitation series from NCEI.
-                If provided and length matches, replaces the default zeros.
+            snow_depth_cm: Optional list of 8760 hourly snow depth values in
+                centimeters from ERA5-Land. If None, defaults to all zeros.
 
         Returns:
             Tuple of (DataFrame with PySAM-compatible columns, metadata dict
@@ -100,17 +100,17 @@ class WeatherFormatter:
         ]
         result = df[pysam_columns].copy()
 
-        # Add Precipitation column (required by PySAM but not in NSRDB)
-        if precipitation is not None and len(precipitation) == len(result):
-            result["Precipitation"] = precipitation.values
+        # Add Snow Depth column (required by PySAM when en_snow_model=1)
+        if snow_depth_cm is not None and len(snow_depth_cm) == len(result):
+            result["Snow Depth"] = snow_depth_cm
         else:
-            if precipitation is not None:
+            if snow_depth_cm is not None:
                 logger.warning(
-                    f"Precipitation length mismatch for ({lat}, {lon}): "
-                    f"expected {len(result)}, got {len(precipitation)}. "
+                    f"Snow depth length mismatch for ({lat}, {lon}): "
+                    f"expected {len(result)}, got {len(snow_depth_cm)}. "
                     f"Falling back to zeros."
                 )
-            result["Precipitation"] = 0
+            result["Snow Depth"] = 0
 
         logger.info(
             f"Formatted {len(result)} rows for PySAM from ({lat}, {lon}), "

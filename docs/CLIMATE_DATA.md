@@ -6,7 +6,7 @@ The climate data pipeline fetches hourly solar resource data from NREL's Nationa
 
 ## NSRDB Data Fields
 
-The following fields are retrieved from the NSRDB PSM v3.2.2 API:
+The following fields are retrieved from the NSRDB GOES Aggregated v4.0.0 API:
 
 | Field | Unit | Description |
 |-------|------|-------------|
@@ -17,7 +17,7 @@ The following fields are retrieved from the NSRDB PSM v3.2.2 API:
 | Wind Speed | m/s | Wind speed at 10m |
 | Surface Albedo | dimensionless | Ground reflectivity (0-1) |
 
-A `Precipitation` column is added during formatting. When NCEI precipitation data is available, real hourly values are used; otherwise, zeros are used as a fallback.
+A `Snow Depth` column is added during formatting from ERA5-Land data (via Open-Meteo). Monthly precipitation for soiling calculations is also sourced from ERA5-Land via Open-Meteo.
 
 ## Cache System
 
@@ -112,7 +112,7 @@ For each unique location:
   |       +-- Cache miss --> NSRDBClient.fetch_weather_data()
   |                            |
   |                            +---> CacheManager.save_weather_data()
-  |                            +---> PrecipitationClient (optional, best-effort)
+  |                            +---> ERA5 client (snow depth + precipitation)
   |                            +---> WeatherFormatter.format_for_pysam()
   |                            +---> WeatherFormatter.save_to_csv()
   |
@@ -176,91 +176,43 @@ All climate settings are managed via `ClimateConfig` (Pydantic model):
 
 | Setting | Default | Env Var | Description |
 |---------|---------|---------|-------------|
-| `api_key` | `DEMO_KEY` | `NSRDB_API_KEY` | NREL API key |
-| `api_email` | `demo@example.com` | `NSRDB_API_EMAIL` | NREL account email |
+| `api_key` | *(hardcoded)* | `NSRDB_API_KEY` | NREL API key |
+| `api_email` | *(hardcoded)* | `NSRDB_API_EMAIL` | NREL account email |
 | `default_year` | `2024` | - | Weather data year |
 | `cache_max_age_days` | `365` | - | Max cache file age |
 | `cache_dir` | `data/climate` | - | Cache directory |
 | `max_cache_distance_km` | `50.0` | - | Max nearest-cache distance |
-| `ncei_token` | `WewidNCeiBHMUnnVbgNyjKxxHCSXXCad` | `NCEI_API_TOKEN` | NOAA NCEI API token |
-| `precipitation_enabled` | `True` | - | Enable precipitation fetch |
-| `max_station_distance_km` | `100.0` | - | Max NCEI station distance |
 
 Environment variables override default values when set.
 
-## Precipitation Data (NOAA NCEI)
+## ERA5-Land Data (via Open-Meteo)
 
-### Overview
+Snow depth and monthly precipitation are retrieved from ERA5-Land reanalysis data via the Open-Meteo Historical Weather API (`src/climate/open_meteo_client.py`). This replaced the original ERA5 ARCO/Zarr client (25-50 min cold fetch) and NCEI precipitation client (30s timeout, unreliable). Open-Meteo returns the same ERA5-backed data in ~2 seconds.
 
-The pipeline optionally fetches real hourly precipitation data from NOAA's National Centers for Environmental Information (NCEI) Climate Data Online (CDO) API. This replaces the default all-zeros Precipitation column with actual observed values.
+The client returns:
+- `snow_depth_cm`: 8760 hourly values for PySAM's snow loss model
+- `monthly_precip_inches`: 12 monthly values for dynamic soiling calculation
 
-The design is **best-effort**: any failure in the precipitation pipeline returns `None` and the formatter falls back to zeros. Precipitation failures never break the main climate data pipeline.
-
-### NCEI API
-
-- **Base URL**: `https://www.ncei.noaa.gov/cdo-web/api/v2`
-- **Dataset**: `PRECIP_HLY` (Hourly Precipitation)
-- **Datatype**: `HPCP` (Hourly Precipitation Amount)
-- **Authentication**: Token-based via `headers = {'token': api_token}`
-- **Rate limit**: 5 requests/second (enforced client-side with 200ms minimum interval)
-
-### Station Search
-
-The `PrecipitationClient` finds the nearest weather station with hourly precipitation data:
-
-1. Convert `max_station_distance_km` to a lat/lon bounding box (`degrees ≈ km / 111`)
-2. Query the NCEI `/stations` endpoint for stations with HPCP data within the bounding box
-3. Calculate Haversine distance to each candidate station
-4. Select the closest station within `max_station_distance_km`
-
-### Data Alignment
-
-NCEI precipitation records are sparse (only non-zero hours may be reported). The client aligns these to a complete hourly series:
-
-1. Create a full hourly index for the year (8760 or 8784 hours)
-2. Parse NCEI ISO timestamps with `pd.to_datetime()`
-3. Reindex sparse data to the complete hourly index
-4. Fill gaps with `0.0` (no precipitation)
-
-### Failure Behavior
-
-The precipitation client **never raises exceptions**. All failures are caught, logged as warnings, and return `None`:
-
-- No station found within range → `None`
-- NCEI API error (timeout, HTTP error, connection error) → `None`
-- Empty data response → `None`
-- Any unexpected error → `None`
-
-The orchestrator logs a warning when precipitation is unavailable and the formatter falls back to zeros.
-
-### Precipitation Configuration
-
-| Setting | Default | Env Var | Description |
-|---------|---------|---------|-------------|
-| `ncei_token` | `WewidNCeiBHMUnnVbgNyjKxxHCSXXCad` | `NCEI_API_TOKEN` | NOAA NCEI API token |
-| `precipitation_enabled` | `True` | - | Enable/disable precipitation fetch |
-| `max_station_distance_km` | `100.0` | - | Max distance for NCEI station search |
-
-### Cache Interaction
-
-Precipitation is only fetched on NSRDB cache misses. When a cached PySAM weather file is reused, it already contains its Precipitation column (either real data or zeros from the original fetch). This avoids redundant NCEI API calls for cached locations.
+Legacy clients are archived in `src/climate/legacy/`.
 
 ## Troubleshooting
 
+### NSRDB API 404 errors
+
+The endpoint was updated from PSM v3.2.2 (deprecated) to GOES Aggregated v4.0.0 on 2026-03-07. If NSRDB starts returning 404 again:
+1. Check if the endpoint has been deprecated: https://developer.nrel.gov/docs/solar/nsrdb/
+2. Verify credentials are valid: https://developer.nrel.gov/api/nsrdb/
+3. Old PSM v3.2.2 URL was: `https://developer.nrel.gov/api/nsrdb/v2/solar/psm3-2-2-download.csv`
+
+Credentials are hardcoded in `src/climate/config.py` and `src/climate/nsrdb_client.py`. Override with env vars `NSRDB_API_KEY` and `NSRDB_API_EMAIL`.
+
 ### NSRDB API rate limit / 403 errors
 
-The default `DEMO_KEY` has strict rate limits. Get a free API key at [https://developer.nrel.gov/signup/](https://developer.nrel.gov/signup/) and set `NSRDB_API_KEY`.
+Get a free API key at [https://developer.nrel.gov/signup/](https://developer.nrel.gov/signup/) and set `NSRDB_API_KEY`.
 
 ### Cache not being used
 
 Cache files follow the pattern `nsrdb_{lat}_{lon}_{YYYYMMDD}.csv`. Coordinates must match exactly (including decimal precision). Files older than `cache_max_age_days` (default 365) are treated as stale.
-
-### Precipitation data missing
-
-Precipitation fetching is best-effort. Common reasons it returns zeros:
-- No NCEI station with hourly data within `max_station_distance_km` (default 100 km)
-- NCEI API timeout or rate limit (5 req/sec)
-- Station exists but has no data for the requested year
 
 ### Weather file has wrong number of rows
 

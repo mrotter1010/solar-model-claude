@@ -50,7 +50,7 @@ class TestSingleSitePipeline:
         # Assign weather file paths
         for site in sites:
             if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]
+                site.weather_file_path = location_to_file[site.location]["weather_file"]
 
         assert len(sites) == 1
         assert sites[0].weather_file_path is not None
@@ -114,7 +114,7 @@ class TestMultiSitePipeline:
 
         for site in sites:
             if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]
+                site.weather_file_path = location_to_file[site.location]["weather_file"]
 
         # Both sites should have the same weather file
         assert sites[0].weather_file_path is not None
@@ -178,9 +178,8 @@ class TestWeatherFileFormat:
         sites = load_config(SINGLE_ROW_CSV)
         location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
 
-        # Find the PySAM-formatted file
-        cache_path = location_to_file[(33.483, -112.073)]
-        pysam_path = cache_path.with_suffix(".pysam.csv")
+        # weather_file is already the PySAM-formatted .pysam.csv path
+        pysam_path = location_to_file[(33.483, -112.073)]["weather_file"]
         assert pysam_path.exists()
 
         lines = pysam_path.read_text().splitlines()
@@ -213,8 +212,8 @@ class TestWeatherFileFormat:
         sites = load_config(SINGLE_ROW_CSV)
         location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
 
-        cache_path = location_to_file[(33.483, -112.073)]
-        pysam_path = cache_path.with_suffix(".pysam.csv")
+        # weather_file is already the PySAM-formatted .pysam.csv path
+        pysam_path = location_to_file[(33.483, -112.073)]["weather_file"]
         lines = pysam_path.read_text().splitlines()
 
         # Line 3: column names
@@ -222,7 +221,7 @@ class TestWeatherFileFormat:
         expected = [
             "Year", "Month", "Day", "Hour", "Minute",
             "GHI", "DNI", "DHI", "Temperature", "Wind Speed",
-            "Surface Albedo", "Precipitation",
+            "Surface Albedo", "Snow Depth",
         ]
         assert columns == expected
 
@@ -246,8 +245,8 @@ class TestWeatherFileFormat:
         sites = load_config(SINGLE_ROW_CSV)
         location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
 
-        cache_path = location_to_file[(33.483, -112.073)]
-        pysam_path = cache_path.with_suffix(".pysam.csv")
+        # weather_file is already the PySAM-formatted .pysam.csv path
+        pysam_path = location_to_file[(33.483, -112.073)]["weather_file"]
         lines = pysam_path.read_text().splitlines()
 
         # 2 header lines + 1 column names line + 8760 data rows
@@ -282,7 +281,7 @@ class TestPipelineSummary:
 
         for site in sites:
             if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]
+                site.weather_file_path = location_to_file[site.location]["weather_file"]
 
         import logging
         with caplog.at_level(logging.INFO):
@@ -299,25 +298,29 @@ class TestRunClimatePipeline:
     @patch("src.pipeline.ClimateConfig")
     @patch("src.pipeline.NSRDBClient")
     @patch("src.pipeline.CacheManager")
-    @patch("src.pipeline.PrecipitationClient")
+    @patch("src.pipeline.fetch_era5_land_data")
     def test_full_pipeline_function(
         self,
-        mock_precip_cls: MagicMock,
+        mock_era5: MagicMock,
         mock_cache_cls: MagicMock,
         mock_nsrdb_cls: MagicMock,
         mock_config_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """run_climate_data_pipeline loads CSV, fetches data, assigns paths."""
+        # Configure mock ERA5 client (avoid real ARCO Zarr network call)
+        mock_era5.return_value = {
+            "snow_depth_cm": [0.0] * 8760,
+            "monthly_precip_inches": [1.0] * 12,
+        }
+
         # Configure mock config
         mock_config = MagicMock()
         mock_config.api_key = "test-key"
         mock_config.api_email = "test@test.com"
         mock_config.cache_dir = tmp_path / "cache"
-        mock_config.precipitation_enabled = False
         mock_config.cache_max_age_days = 365
         mock_config.max_cache_distance_km = 50.0
-        mock_config.ncei_token = "test-token"
         mock_config_cls.return_value = mock_config
 
         # Configure mock NSRDB client
@@ -331,7 +334,7 @@ class TestRunClimatePipeline:
         mock_cache = CacheManager(cache_dir=tmp_path / "cache")
         mock_cache_cls.return_value = mock_cache
 
-        sites = run_climate_data_pipeline(SINGLE_ROW_CSV, year=2024)
+        sites, _soiling_lookup = run_climate_data_pipeline(SINGLE_ROW_CSV, year=2024)
 
         assert len(sites) == 1
         assert sites[0].weather_file_path is not None
@@ -366,7 +369,7 @@ class TestIntegrationArtifacts:
 
         for site in sites:
             if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]
+                site.weather_file_path = location_to_file[site.location]["weather_file"]
 
         # Write summary JSON
         summary = {
@@ -419,10 +422,11 @@ class TestIntegrationArtifacts:
         sample_dir = test_results_dir / "climate" / "sample_weather_files"
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        for (lat, lon), path in location_to_file.items():
-            shutil.copy2(path, sample_dir / path.name)
+        for (lat, lon), result in location_to_file.items():
+            weather_file = result["weather_file"]
+            shutil.copy2(weather_file, sample_dir / weather_file.name)
             # Also copy PySAM version if it exists
-            pysam_path = path.with_suffix(".pysam.csv")
+            pysam_path = weather_file.with_suffix(".pysam.csv")
             if pysam_path.exists():
                 shutil.copy2(pysam_path, sample_dir / pysam_path.name)
 
@@ -454,7 +458,7 @@ class TestIntegrationArtifacts:
 
             for site in sites:
                 if site.location in location_to_file:
-                    site.weather_file_path = location_to_file[site.location]
+                    site.weather_file_path = location_to_file[site.location]["weather_file"]
 
             print_summary(sites, location_to_file)
 

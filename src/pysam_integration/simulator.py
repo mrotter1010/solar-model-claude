@@ -195,6 +195,10 @@ class PySAMSimulator:
             "annual_xfmr_loss_percent": _get("annual_xfmr_loss_percent"),
             "annual_ac_perf_adj_loss_percent": _get("annual_ac_perf_adj_loss_percent"),
             "annual_poa_rear_gain_percent": _get("annual_poa_rear_gain_percent"),
+            # Snow loss (from Townsend/Powers model when en_snow_model=1)
+            "annual_dc_snow_loss_percent": _get("annual_dc_snow_loss_percent"),
+            "annual_snow_loss": _get("annual_snow_loss"),
+            "monthly_snow_loss": _get_monthly("monthly_snow_loss"),
             # Key scalars
             "capacity_factor": _get("capacity_factor"),
             "capacity_factor_ac": _get("capacity_factor_ac"),
@@ -247,12 +251,17 @@ class BatchSimulator:
         self.simulator = simulator or PySAMSimulator()
 
     def run_batch(
-        self, site_configs: list[SiteConfig]
+        self,
+        site_configs: list[SiteConfig],
+        soiling_lookup: dict[tuple[float, float], list[float] | None] | None = None,
     ) -> tuple[list[SimulationResult], list[SimulationResult]]:
         """Run simulations for multiple sites, continuing on failure.
 
         Args:
             site_configs: List of validated site configurations.
+            soiling_lookup: Optional mapping from (lat, lon) to 12 monthly
+                soiling loss percentages. If None or key missing, the
+                configurator falls back to default 5%.
 
         Returns:
             Tuple of (successful_results, failed_results).
@@ -268,8 +277,13 @@ class BatchSimulator:
             )
 
             # Attempt configuration
+            monthly_soiling = None
+            if soiling_lookup is not None:
+                monthly_soiling = soiling_lookup.get(site_config.location)
             try:
-                model_config = self.configurator.configure_model(site_config)
+                model_config = self.configurator.configure_model(
+                    site_config, monthly_soiling=monthly_soiling
+                )
             except PySAMConfigurationError as exc:
                 error_msg = (
                     f"Configuration failed for {site_config.site_name}: {exc}"

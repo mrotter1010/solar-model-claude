@@ -1,10 +1,12 @@
 """Orchestrator for coordinating climate data retrieval across sites."""
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from src.climate.cache_manager import CacheManager
 from src.climate.nsrdb_client import NSRDBClient
-from src.climate.precipitation_client import PrecipitationClient
+from src.climate.soiling_calculator import calculate_monthly_soiling
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import get_unique_locations
 from src.config.schema import SiteConfig
@@ -23,7 +25,9 @@ class ClimateOrchestrator:
         nsrdb_client: Client for NSRDB API calls.
         cache_manager: Manager for weather data file caching.
         formatter: Formatter for converting NSRDB data to PySAM format.
-        precipitation_client: Optional client for NCEI precipitation data.
+        era5_client: Optional callable for ERA5-Land data retrieval
+            (snow depth + precipitation). Expected signature:
+            (lat, lon, year) -> dict | None.
     """
 
     def __init__(
@@ -31,12 +35,12 @@ class ClimateOrchestrator:
         nsrdb_client: NSRDBClient,
         cache_manager: CacheManager,
         formatter: WeatherFormatter,
-        precipitation_client: PrecipitationClient | None = None,
+        era5_client: Callable[..., dict[str, Any] | None] | None = None,
     ) -> None:
         self.nsrdb_client = nsrdb_client
         self.cache_manager = cache_manager
         self.formatter = formatter
-        self.precipitation_client = precipitation_client
+        self.era5_client = era5_client
 
     def fetch_climate_data(
         self,
@@ -44,11 +48,11 @@ class ClimateOrchestrator:
         year: int = 2024,
         max_age_days: int = 365,
         max_cache_distance_km: float = 50.0,
-    ) -> dict[tuple[float, float], Path]:
+    ) -> dict[tuple[float, float], dict[str, Any]]:
         """Fetch climate data for all unique site locations.
 
         Deduplicates locations, checks cache before calling API, and returns
-        a mapping from (lat, lon) to weather file paths.
+        a mapping from (lat, lon) to climate result dicts.
 
         Args:
             sites: List of site configurations to fetch data for.
@@ -57,57 +61,72 @@ class ClimateOrchestrator:
             max_cache_distance_km: Maximum distance for nearest-cache fallback.
 
         Returns:
-            Dict mapping (lat, lon) tuples to weather file paths.
+            Dict mapping (lat, lon) tuples to dicts with keys:
+                - "weather_file": Path to cached weather file.
+                - "monthly_soiling": list[float] | None, 12 monthly soiling
+                  loss percentages from ERA5 precipitation, or None.
         """
         unique_locations = get_unique_locations(sites)
-        results: dict[tuple[float, float], Path] = {}
+        results: dict[tuple[float, float], dict[str, Any]] = {}
         cache_hits = 0
         api_calls = 0
 
         for lat, lon in unique_locations:
-            # Check cache first
+            # Step 1: Get NSRDB data (from cache or API)
             cached_path = self.cache_manager.get_cached_file(
                 lat, lon, max_age_days=max_age_days
             )
             if cached_path is not None:
-                results[(lat, lon)] = cached_path
+                cache_path = cached_path
+                raw_csv = cached_path.read_text()
                 cache_hits += 1
-                continue
+            else:
+                # Cache miss — fetch from API
+                try:
+                    raw_csv = self.nsrdb_client.fetch_weather_data(lat, lon, year)
+                    api_calls += 1
+                except ClimateDataError as e:
+                    path = self.handle_api_failure(
+                        lat, lon, e, max_cache_distance_km=max_cache_distance_km
+                    )
+                    results[(lat, lon)] = {
+                        "weather_file": path,
+                        "monthly_soiling": None,
+                    }
+                    continue
 
-            # Cache miss — fetch from API
-            try:
-                raw_csv = self.nsrdb_client.fetch_weather_data(lat, lon, year)
-                api_calls += 1
-            except ClimateDataError as e:
-                path = self.handle_api_failure(
-                    lat, lon, e, max_cache_distance_km=max_cache_distance_km
-                )
-                results[(lat, lon)] = path
-                continue
+                # Save raw CSV to cache
+                cache_path = self.cache_manager.save_weather_data(lat, lon, raw_csv)
 
-            # Save raw CSV to cache
-            cache_path = self.cache_manager.save_weather_data(lat, lon, raw_csv)
-
-            # Fetch precipitation data if client is available
-            precipitation = None
-            if self.precipitation_client is not None:
-                precipitation = self.precipitation_client.fetch_precipitation(
-                    lat, lon, year
-                )
-                if precipitation is None:
+            # Step 2: ERA5-Land — snow depth + precipitation for soiling
+            snow_depth_cm = None
+            monthly_soiling = None
+            if self.era5_client is not None:
+                era5_data = self.era5_client(lat, lon, year)
+                if era5_data is not None:
+                    snow_depth_cm = era5_data["snow_depth_cm"]
+                    monthly_precip_inches = era5_data["monthly_precip_inches"]
+                    monthly_soiling = calculate_monthly_soiling(
+                        monthly_precip_inches
+                    )
+                else:
                     logger.warning(
-                        f"Precipitation unavailable for ({lat}, {lon}), "
-                        f"using zeros"
+                        f"ERA5-Land data unavailable for ({lat}, {lon}), "
+                        f"using default snow/soiling"
                     )
 
-            # Format and save PySAM-compatible file alongside cache
+            # Step 3: Format and save PySAM-compatible file alongside cache
             df, metadata = self.formatter.format_for_pysam(
-                raw_csv, lat, lon, precipitation=precipitation
+                raw_csv, lat, lon,
+                snow_depth_cm=snow_depth_cm,
             )
             pysam_path = cache_path.with_suffix(".pysam.csv")
             self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
 
-            results[(lat, lon)] = cache_path
+            results[(lat, lon)] = {
+                "weather_file": pysam_path,
+                "monthly_soiling": monthly_soiling,
+            }
 
         logger.info(
             f"Climate data summary: {len(unique_locations)} unique locations, "
@@ -170,13 +189,15 @@ class ClimateOrchestrator:
                     cache_path = self.cache_manager.save_weather_data(
                         lat, lon, raw_csv
                     )
-                    df, metadata = self.formatter.format_for_pysam(raw_csv, lat, lon)
+                    df, metadata = self.formatter.format_for_pysam(
+                        raw_csv, lat, lon, snow_depth_cm=None
+                    )
                     pysam_path = cache_path.with_suffix(".pysam.csv")
                     self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
                     logger.info(
                         f"Retry successful for ({lat}, {lon}) on attempt {attempt + 1}"
                     )
-                    return cache_path
+                    return pysam_path
                 except ClimateDataError as retry_error:
                     logger.warning(
                         f"Retry {attempt + 1}/{MAX_RETRIES} failed for ({lat}, {lon})"
@@ -190,7 +211,13 @@ class ClimateOrchestrator:
                     f"Using nearest cache for ({lat}, {lon}): "
                     f"{nearest_path.name} ({nearest_dist:.1f} km)"
                 )
-                return nearest_path
+                raw_csv = nearest_path.read_text()
+                df, metadata = self.formatter.format_for_pysam(
+                    raw_csv, lat, lon, snow_depth_cm=None
+                )
+                pysam_path = nearest_path.with_suffix(".pysam.csv")
+                self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
+                return pysam_path
 
             # Abort (choice matches abort number, or any unrecognized input)
             logger.error(f"User aborted climate data fetch for ({lat}, {lon})")

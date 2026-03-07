@@ -21,8 +21,8 @@ class ClimateConfig(BaseModel):
         max_station_distance_km: Maximum distance for NCEI station search.
     """
 
-    api_key: str = "DEMO_KEY"
-    api_email: str = "demo@example.com"
+    api_key: str = "y1zAp5Hghami0SWXdi0xhc6kcvfWZhpliZoApVzB"
+    api_email: str = "rotter.mich@gmail.com"
     default_year: int = 2024
     cache_max_age_days: int = 365
     cache_dir: Path = Path("data/climate")

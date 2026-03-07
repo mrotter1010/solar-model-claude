@@ -173,6 +173,7 @@ def extract_loss_waterfall(loss_data: dict) -> list[dict]:
             "loss_percent": _loss_pct(annual_dc_gross, annual_dc_net),
             "type": "loss",
             "sub_losses": _filter_sub_losses([
+                {"label": "Snow", "percent": _get("annual_dc_snow_loss_percent")},
                 {"label": "Mismatch", "percent": _get("annual_dc_mismatch_loss_percent")},
                 {"label": "Bifacial Mismatch", "percent": _get("annual_bifacial_electrical_mismatch_percent")},
                 {"label": "Diodes & Connections", "percent": _get("annual_dc_diodes_loss_percent")},

@@ -24,8 +24,8 @@ class TestNSRDBClientInit:
     def test_default_params(self) -> None:
         """Client uses demo defaults when no params provided."""
         client = NSRDBClient()
-        assert client.api_key == "DEMO_KEY"
-        assert client.email == "demo@example.com"
+        assert client.api_key == "y1zAp5Hghami0SWXdi0xhc6kcvfWZhpliZoApVzB"
+        assert client.email == "rotter.mich@gmail.com"
 
     def test_custom_params(self) -> None:
         """Client stores custom API key and email."""

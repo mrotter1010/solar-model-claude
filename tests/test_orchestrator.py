@@ -11,7 +11,6 @@ from src.climate.cache_manager import CacheManager
 from src.climate.config import ClimateConfig
 from src.climate.nsrdb_client import NSRDBClient
 from src.climate.orchestrator import ClimateOrchestrator
-from src.climate.precipitation_client import PrecipitationClient
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import load_config
 from src.config.schema import SiteConfig
@@ -59,8 +58,8 @@ class TestClimateConfig:
     def test_defaults(self) -> None:
         """Default values are set correctly."""
         config = ClimateConfig()
-        assert config.api_key == "DEMO_KEY"
-        assert config.api_email == "demo@example.com"
+        assert config.api_key == "y1zAp5Hghami0SWXdi0xhc6kcvfWZhpliZoApVzB"
+        assert config.api_email == "rotter.mich@gmail.com"
         assert config.default_year == 2024
         assert config.cache_max_age_days == 365
         assert config.cache_dir == Path("data/climate")
@@ -268,7 +267,7 @@ class TestNearestCacheFallback:
                 33.45, -111.98, ClimateDataError("API error")
             )
 
-        assert path == nearby_file
+        assert path == nearby_file.with_suffix(".pysam.csv")
 
     def test_distant_cache_not_offered(
         self, tmp_path: Path, mock_client: MagicMock
@@ -318,10 +317,10 @@ class TestIntegration:
         # Act
         results = orch.fetch_climate_data(sites)
 
-        # Assert — 2 unique locations, both mapped to paths
+        # Assert — 2 unique locations, both mapped to result dicts
         assert len(results) == 2
-        for (lat, lon), path in results.items():
-            assert path.exists(), f"Weather file missing for ({lat}, {lon})"
+        for (lat, lon), result in results.items():
+            assert result["weather_file"].exists(), f"Weather file missing for ({lat}, {lon})"
 
         # Only 2 API calls for 3 sites
         assert mock_client.fetch_weather_data.call_count == 2
@@ -332,7 +331,7 @@ class TestIntegration:
             "unique_locations": len(results),
             "api_calls": mock_client.fetch_weather_data.call_count,
             "location_mapping": {
-                f"({lat}, {lon})": str(path) for (lat, lon), path in results.items()
+                f"({lat}, {lon})": str(result["weather_file"]) for (lat, lon), result in results.items()
             },
         }
         output_path = test_results_dir / "test_orchestrator_integration.json"
@@ -457,8 +456,8 @@ class TestApiFailureInFetchClimateData:
 
         # Should have recovered using the nearby cache
         assert len(results) == 1
-        path = list(results.values())[0]
-        assert path == nearby_cache
+        result = list(results.values())[0]
+        assert result["weather_file"] == nearby_cache.with_suffix(".pysam.csv")
 
     def test_api_failure_abort_in_fetch_climate_data(
         self,
@@ -505,8 +504,8 @@ class TestEnhancedIntegration:
         # Assert
         assert len(results) == 3  # 3 unique locations
         assert mock_client.fetch_weather_data.call_count == 3
-        for path in results.values():
-            assert path.exists()
+        for result in results.values():
+            assert result["weather_file"].exists()
 
         # Write integration summary
         summary_path = climate_results_dir / "integration_summary.json"
@@ -518,8 +517,8 @@ class TestEnhancedIntegration:
                     "api_calls": mock_client.fetch_weather_data.call_count,
                     "cache_hits": 0,
                     "locations": [
-                        {"lat": lat, "lon": lon, "file": str(path)}
-                        for (lat, lon), path in results.items()
+                        {"lat": lat, "lon": lon, "file": str(result["weather_file"])}
+                        for (lat, lon), result in results.items()
                     ],
                 },
                 indent=2,
@@ -536,108 +535,3 @@ class TestEnhancedIntegration:
         listing_path.write_text(json.dumps(cache_listing, indent=2))
 
 
-class TestPrecipitationIntegration:
-    """Tests for precipitation client integration in the orchestrator."""
-
-    def test_without_precip_client_backward_compatible(
-        self,
-        test_sites: list[SiteConfig],
-        tmp_path: Path,
-    ) -> None:
-        """Orchestrator without precipitation client works as before."""
-        mock_client = MagicMock(spec=NSRDBClient)
-        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
-
-        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
-        formatter = WeatherFormatter()
-        # No precipitation_client argument — backward compatible
-        orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
-
-        results = orch.fetch_climate_data(test_sites)
-
-        assert len(results) == 3
-        assert mock_client.fetch_weather_data.call_count == 3
-
-    def test_precip_client_called_on_cache_miss(
-        self,
-        test_sites: list[SiteConfig],
-        tmp_path: Path,
-    ) -> None:
-        """Precipitation client called for each unique location on cache miss."""
-        mock_client = MagicMock(spec=NSRDBClient)
-        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
-
-        mock_precip = MagicMock(spec=PrecipitationClient)
-        mock_precip.fetch_precipitation.return_value = None
-
-        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
-        formatter = WeatherFormatter()
-        orch = ClimateOrchestrator(
-            mock_client, cache_manager, formatter,
-            precipitation_client=mock_precip,
-        )
-
-        results = orch.fetch_climate_data(test_sites)
-
-        # 3 unique locations, all cache misses → 3 precip calls
-        assert mock_precip.fetch_precipitation.call_count == 3
-        assert len(results) == 3
-
-    def test_precip_failure_doesnt_break_pipeline(
-        self,
-        test_sites: list[SiteConfig],
-        tmp_path: Path,
-    ) -> None:
-        """Precipitation failure (returns None) doesn't break the pipeline."""
-        mock_client = MagicMock(spec=NSRDBClient)
-        mock_client.fetch_weather_data.return_value = SAMPLE_NSRDB_CSV
-
-        mock_precip = MagicMock(spec=PrecipitationClient)
-        mock_precip.fetch_precipitation.return_value = None
-
-        cache_manager = CacheManager(cache_dir=tmp_path / "cache")
-        formatter = WeatherFormatter()
-        orch = ClimateOrchestrator(
-            mock_client, cache_manager, formatter,
-            precipitation_client=mock_precip,
-        )
-
-        results = orch.fetch_climate_data(test_sites)
-
-        # Pipeline completes successfully despite precip failures
-        assert len(results) == 3
-        for path in results.values():
-            assert path.exists()
-
-    def test_cache_hits_skip_precipitation_fetch(
-        self,
-        test_sites: list[SiteConfig],
-        tmp_path: Path,
-    ) -> None:
-        """Cache hits skip precipitation fetch entirely."""
-        cache_dir = tmp_path / "cache"
-        cache_dir.mkdir()
-        today = datetime.now(timezone.utc).strftime("%Y%m%d")
-
-        # Pre-populate cache for all locations
-        for site in test_sites:
-            lat, lon = site.latitude, site.longitude
-            cache_file = cache_dir / f"nsrdb_{lat}_{lon}_{today}.csv"
-            cache_file.write_text(SAMPLE_NSRDB_CSV)
-
-        mock_client = MagicMock(spec=NSRDBClient)
-        mock_precip = MagicMock(spec=PrecipitationClient)
-
-        cache_manager = CacheManager(cache_dir=cache_dir)
-        formatter = WeatherFormatter()
-        orch = ClimateOrchestrator(
-            mock_client, cache_manager, formatter,
-            precipitation_client=mock_precip,
-        )
-
-        results = orch.fetch_climate_data(test_sites)
-
-        # All cache hits — no API calls, no precipitation calls
-        assert mock_client.fetch_weather_data.call_count == 0
-        assert mock_precip.fetch_precipitation.call_count == 0
-        assert len(results) == 3

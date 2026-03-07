@@ -43,11 +43,17 @@ class ModelConfigurator:
         self.cec_db = cec_database or CECDatabase()
         self.string_calc = StringCalculator()
 
-    def configure_model(self, site_config: SiteConfig) -> PySAMModelConfig:
+    def configure_model(
+        self,
+        site_config: SiteConfig,
+        monthly_soiling: list[float] | None = None,
+    ) -> PySAMModelConfig:
         """Configure a PySAM Pvsamv1 model from a validated SiteConfig.
 
         Args:
             site_config: Validated site configuration from CSV input.
+            monthly_soiling: Optional list of 12 monthly soiling loss
+                percentages. If None, falls back to 5% for all months.
 
         Returns:
             PySAMModelConfig with the configured model and metadata.
@@ -79,7 +85,7 @@ class ModelConfigurator:
         string_config = self._configure_array(
             model, site_config, module_params, inverter_params
         )
-        self._configure_losses(model, site_config)
+        self._configure_losses(model, site_config, monthly_soiling=monthly_soiling)
 
         if site_config.weather_file_path is not None:
             self._configure_weather_file(model, site_config)
@@ -338,7 +344,10 @@ class ModelConfigurator:
         return string_config
 
     def _configure_losses(
-        self, model: pvsam.Pvsamv1, site_config: SiteConfig
+        self,
+        model: pvsam.Pvsamv1,
+        site_config: SiteConfig,
+        monthly_soiling: list[float] | None = None,
     ) -> None:
         """Set loss parameters — wiring, transformer, availability, mismatch, LID."""
         # DC and AC wiring losses
@@ -367,9 +376,26 @@ class ModelConfigurator:
         # LID (Light-Induced Degradation) — applied as nameplate loss
         model.Losses.subarray1_nameplate_loss = site_config.lid_percent
 
-        # Monthly soiling losses (constant 5% MVP default)
-        model.Losses.subarray1_soiling = [5.0] * 12
+        # Monthly soiling losses
+        if monthly_soiling is not None and len(monthly_soiling) == 12:
+            model.Losses.subarray1_soiling = monthly_soiling
+        else:
+            if monthly_soiling is not None:
+                logger.warning(
+                    f"Invalid monthly_soiling (expected 12 elements, "
+                    f"got {len(monthly_soiling)}). Using default 5%."
+                )
+            else:
+                logger.warning(
+                    f"No monthly soiling data for {site_config.site_name}. "
+                    f"Using default 5%."
+                )
+            model.Losses.subarray1_soiling = [5.0] * 12
         model.Losses.subarray1_rear_soiling_loss = 0.5
+
+        # Snow loss model (Townsend/Powers)
+        model.Losses.en_snow_model = 1
+        model.Losses.snow_slide_coefficient = 1.97
 
         # Rack self-shading (0% — already handled by GCR)
         model.Losses.subarray1_rack_shading = 0.0
