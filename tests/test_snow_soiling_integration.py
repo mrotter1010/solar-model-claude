@@ -147,14 +147,14 @@ def test_snow_model_enabled() -> None:
 
 
 def test_snow_loss_present_in_waterfall() -> None:
-    """Non-zero snow loss appears as a sub-loss in the DC Losses step."""
+    """Non-zero snow loss appears as a sub-loss in the POA & Module Losses step."""
     loss_data = _make_loss_data(annual_dc_snow_loss_percent=3.5)
 
     steps = extract_loss_waterfall(loss_data)
 
-    dc_step = next(s for s in steps if s["label"] == "DC Losses")
+    poa_step = next(s for s in steps if s["label"] == "POA & Module Losses")
     snow_sub = next(
-        (s for s in dc_step["sub_losses"] if s["label"] == "Snow"), None
+        (s for s in poa_step["sub_losses"] if s["label"] == "Snow"), None
     )
     assert snow_sub is not None
     assert snow_sub["percent"] == pytest.approx(3.5)
@@ -166,8 +166,8 @@ def test_snow_loss_zero_filtered_out() -> None:
 
     steps = extract_loss_waterfall(loss_data)
 
-    dc_step = next(s for s in steps if s["label"] == "DC Losses")
-    snow_labels = [s["label"] for s in dc_step["sub_losses"]]
+    poa_step = next(s for s in steps if s["label"] == "POA & Module Losses")
+    snow_labels = [s["label"] for s in poa_step["sub_losses"]]
     assert "Snow" not in snow_labels
 
 
