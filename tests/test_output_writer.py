@@ -262,49 +262,6 @@ class TestTimeseriesCSV:
         assert set(df.columns) == expected_cols
 
 
-class TestSummaryJSON:
-    """Tests for summary JSON output."""
-
-    def test_summary_json_has_all_fields(self, tmp_path: Path) -> None:
-        """Summary JSON contains all required metric and metadata fields."""
-        # Arrange
-        writer = OutputWriter(tmp_path)
-        metrics = SummaryMetrics(
-            site_name="Phoenix",
-            run_name="TestRun",
-            customer="TestCo",
-            weather_year=2023,
-            dc_size_mw=10.0,
-            ac_installed_mw=8.0,
-            ac_poi_mw=8.0,
-            panel_model="Canadian_Solar",
-            inverter_model="SMA_150",
-            racking="tracker",
-            tilt=60.0,
-            azimuth=180.0,
-            annual_energy_mwh=42000.0,
-            net_capacity_factor=0.6,
-            specific_yield=1700.0,
-            performance_ratio=0.82,
-            shading_pct_applied=3.0,
-            simulation_timestamp="2023-01-01T00:00:00+00:00",
-        )
-
-        # Act
-        path = writer._write_summary(metrics, "TestRun_Phoenix")
-
-        # Assert
-        assert path.exists()
-        assert path.name == "TestRun_Phoenix_summary.json"
-        data = json.loads(path.read_text())
-        assert data["site_name"] == "Phoenix"
-        assert data["annual_energy_mwh"] == 42000.0
-        assert data["net_capacity_factor"] == 0.6
-        assert data["specific_yield"] == 1700.0
-        assert data["performance_ratio"] == 0.82
-        assert data["errors"] == []
-
-
 class TestErrorJSON:
     """Tests for error JSON output."""
 
@@ -339,7 +296,7 @@ class TestIntegration:
     """End-to-end tests for the full output pipeline."""
 
     def test_successful_simulation_pipeline(self, tmp_path: Path) -> None:
-        """Full pipeline: successful sim → timeseries CSV + summary JSON."""
+        """Full pipeline: successful sim → timeseries CSV + summary dict."""
         # Arrange
         writer = OutputWriter(tmp_path)
         site = _make_site_config()
@@ -347,23 +304,21 @@ class TestIntegration:
         shading_pct = 3.0
 
         # Act
-        ts_path, summary_path = writer.write_outputs(result, site, shading_pct)
+        ts_path, summary = writer.write_outputs(result, site, shading_pct)
 
-        # Assert — both files exist
+        # Assert — timeseries file exists, summary is a dict
         assert ts_path is not None
         assert ts_path.exists()
         assert ts_path.suffix == ".csv"
-        assert summary_path.exists()
-        assert summary_path.suffix == ".json"
+        assert isinstance(summary, dict)
 
         # Verify timeseries has shading applied
         df = pd.read_csv(ts_path)
         assert df["ac_net"].iloc[0] < df["ac_gross"].iloc[0]
 
         # Verify summary metrics
-        data = json.loads(summary_path.read_text())
-        assert data["shading_pct_applied"] == 3.0
-        assert data["annual_energy_mwh"] > 0
+        assert summary["shading_pct_applied"] == 3.0
+        assert summary["annual_energy_mwh"] > 0
 
     def test_failed_simulation_pipeline(self, tmp_path: Path) -> None:
         """Full pipeline: failed sim → error JSON, no timeseries."""
@@ -408,21 +363,20 @@ class TestArtifactOutput:
         result = _make_successful_result()
 
         # Act — run full pipeline
-        ts_path, summary_path = writer.write_outputs(result, site, shading_pct=3.0)
+        ts_path, summary_data = writer.write_outputs(result, site, shading_pct=3.0)
 
         # Write inspection artifact
         output_dir = Path("outputs/test_results")
         output_dir.mkdir(parents=True, exist_ok=True)
         artifact_path = output_dir / "output_writer_test.txt"
 
-        summary_data = json.loads(summary_path.read_text())
         ts_df = pd.read_csv(ts_path)
 
         lines = [
             "=== Output Writer Test Artifact ===",
             "",
             "--- Summary Metrics ---",
-            json.dumps(summary_data, indent=2),
+            json.dumps(summary_data, indent=2, default=str),
             "",
             "--- Timeseries Sample (first 5 rows) ---",
             ts_df.head().to_string(index=False),

@@ -98,8 +98,60 @@ def load_config(csv_path: Path) -> list[SiteConfig]:
                 },
             )
 
+    _validate_site_coordinates(configs)
+    _validate_unique_run_names(configs)
+
     logger.info(f"Successfully validated {len(configs)} site configurations")
     return configs
+
+
+def _validate_site_coordinates(configs: list[SiteConfig]) -> None:
+    """Validate that rows sharing a site name have identical coordinates.
+
+    Args:
+        configs: List of validated SiteConfig objects.
+
+    Raises:
+        ConfigValidationError: If a site name maps to conflicting lat/lon values.
+    """
+    seen: dict[str, tuple[float, float]] = {}
+    for config in configs:
+        name = config.site_name
+        coords = (config.latitude, config.longitude)
+        if name in seen:
+            if seen[name] != coords:
+                raise ConfigValidationError(
+                    f"Site '{name}' has conflicting coordinates: "
+                    f"{seen[name]} vs {coords}",
+                    context={
+                        "site_name": name,
+                        "first_coords": seen[name],
+                        "conflicting_coords": coords,
+                    },
+                )
+        else:
+            seen[name] = coords
+
+
+def _validate_unique_run_names(configs: list[SiteConfig]) -> None:
+    """Validate that all run names in the batch are unique.
+
+    Args:
+        configs: List of validated SiteConfig objects.
+
+    Raises:
+        ConfigValidationError: If any run name appears more than once.
+    """
+    seen: dict[str, int] = {}
+    for config in configs:
+        seen[config.run_name] = seen.get(config.run_name, 0) + 1
+
+    duplicates = [name for name, count in seen.items() if count > 1]
+    if duplicates:
+        raise ConfigValidationError(
+            f"Duplicate run names found: {duplicates}",
+            context={"duplicate_run_names": duplicates},
+        )
 
 
 def get_unique_locations(sites: list[SiteConfig]) -> list[tuple[float, float]]:

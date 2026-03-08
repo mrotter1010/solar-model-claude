@@ -11,6 +11,7 @@ from src.climate.orchestrator import ClimateOrchestrator
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import load_config
 from src.config.schema import SiteConfig
+from src.database.writer import save_run_to_db
 from src.outputs.output_writer import OutputWriter
 from src.reporting.report_generator import generate_report
 from src.pysam_integration.cec_database import CECDatabase
@@ -93,6 +94,33 @@ def print_summary(
     )
 
 
+def _print_run_summary(rows: list[tuple[str, str, str, str]]) -> None:
+    """Print a formatted summary table of all pipeline runs.
+
+    Args:
+        rows: List of (run_name, site_name, run_id, status) tuples.
+    """
+    if not rows:
+        return
+
+    headers = ("Run Name", "Site Name", "Run ID", "Status")
+    # Calculate column widths from data and headers
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, val in enumerate(row):
+            widths[i] = max(widths[i], len(val))
+
+    fmt = f"{{:<{widths[0]}}}  {{:<{widths[1]}}}  {{:<{widths[2]}}}  {{:<{widths[3]}}}"
+    sep = "-" * (sum(widths) + 6)  # 6 = 3 gaps × 2 spaces each
+
+    print()
+    print(fmt.format(*headers))
+    print(sep)
+    for row in rows:
+        print(fmt.format(*row))
+    print()
+
+
 class SolarModelingPipeline:
     """End-to-end pipeline: CSV → climate → PySAM → outputs.
 
@@ -122,7 +150,7 @@ class SolarModelingPipeline:
 
         Returns:
             Dict with keys: total_sites, successful, failed,
-            timeseries_files, summary_files, error_files.
+            timeseries_files, summaries, error_files, report_files.
         """
         # Step 1: Load site configs
         logger.info(f"Loading site configurations from {csv_path}")
@@ -156,7 +184,7 @@ class SolarModelingPipeline:
         # Step 4: Write outputs
         logger.info("Writing output files...")
         timeseries_files: list[Path] = []
-        summary_files: list[Path] = []
+        summaries: list[dict] = []
         error_files: list[Path] = []
 
         # Build a lookup from site_name to SiteConfig for output writing
@@ -164,18 +192,22 @@ class SolarModelingPipeline:
 
         report_files: list[Path] = []
 
+        # Collect (run_name, site_name, run_id, status) for end-of-pipeline summary
+        run_summary_rows: list[tuple[str, str, str, str]] = []
+
         for result in successful:
             site = site_lookup[result.site_name]
-            ts_path, summary_path = self.output_writer.write_outputs(
+            ts_path, summary = self.output_writer.write_outputs(
                 simulation_result=result,
                 site_config=site,
                 shading_pct=site.shading_percent,
             )
             if ts_path is not None:
                 timeseries_files.append(ts_path)
-            summary_files.append(summary_path)
+            summaries.append(summary)
 
             # Generate PDF report if requested and loss_data is available
+            report_path = None
             if site.report and result.loss_data:
                 reports_dir = self.output_dir / "reports"
                 try:
@@ -196,6 +228,26 @@ class SolarModelingPipeline:
                         f"Report generation failed for {site.site_name}: {exc}"
                     )
 
+            # Save to database (non-fatal if DB is unavailable)
+            try:
+                run = save_run_to_db(
+                    site_config=site,
+                    summary=summary,
+                    timeseries_path=ts_path,
+                    report_path=report_path,
+                    climate_path=site.weather_file_path,
+                )
+                run_summary_rows.append(
+                    (site.run_name, site.site_name, str(run.id), "success")
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"Database save failed for {site.site_name}: {exc}"
+                )
+                run_summary_rows.append(
+                    (site.run_name, site.site_name, "N/A", "success (db_error)")
+                )
+
         for result in failed:
             site = site_lookup[result.site_name]
             _, error_path = self.output_writer.write_outputs(
@@ -204,6 +256,12 @@ class SolarModelingPipeline:
                 shading_pct=site.shading_percent,
             )
             error_files.append(error_path)
+            run_summary_rows.append(
+                (site.run_name, site.site_name, "N/A", "failed")
+            )
+
+        # Print run summary table
+        _print_run_summary(run_summary_rows)
 
         # Log summary
         logger.info(
@@ -216,7 +274,7 @@ class SolarModelingPipeline:
             "successful": len(successful),
             "failed": len(failed),
             "timeseries_files": timeseries_files,
-            "summary_files": summary_files,
+            "summaries": summaries,
             "error_files": error_files,
             "report_files": report_files,
         }

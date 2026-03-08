@@ -147,10 +147,10 @@ class TestSingleSitePipeline:
         assert "ac_net" in ts_df.columns
         assert "ac_gross" in ts_df.columns
 
-        # Assert: summary JSON exists with expected keys
-        summary_files = results["summary_files"]
-        assert len(summary_files) == 1
-        summary = json.loads(summary_files[0].read_text())
+        # Assert: summary dict has expected keys
+        summaries = results["summaries"]
+        assert len(summaries) == 1
+        summary = summaries[0]
         assert summary["site_name"] == site.site_name
         assert "annual_energy_mwh" in summary
         assert "net_capacity_factor" in summary
@@ -182,7 +182,7 @@ class TestMultiSitePipeline:
         assert results["successful"] == 3
         assert results["failed"] == 0
         assert len(results["timeseries_files"]) == 3
-        assert len(results["summary_files"]) == 3
+        assert len(results["summaries"]) == 3
 
 
 class TestSkipClimateMode:
@@ -297,7 +297,7 @@ class TestMixedSuccessFailure:
         assert results["successful"] == 2
         assert results["failed"] == 1
         assert len(results["timeseries_files"]) == 2
-        assert len(results["summary_files"]) == 2
+        assert len(results["summaries"]) == 2
         assert len(results["error_files"]) == 1
 
 
@@ -431,15 +431,9 @@ class TestArtifactGeneration:
             "successful": results["successful"],
             "failed": results["failed"],
             "timeseries_files": [str(p) for p in results["timeseries_files"]],
-            "summary_files": [str(p) for p in results["summary_files"]],
             "error_files": [str(p) for p in results["error_files"]],
+            "summaries": results["summaries"],
         }
-
-        # Include summary contents for manual inspection
-        summaries = []
-        for sp in results["summary_files"]:
-            summaries.append(json.loads(sp.read_text()))
-        report["summaries"] = summaries
 
         errors = []
         for ep in results["error_files"]:

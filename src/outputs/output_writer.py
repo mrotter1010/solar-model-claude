@@ -1,4 +1,4 @@
-"""Output generation for simulation results: timeseries CSVs, summary JSONs, error JSONs."""
+"""Output generation for simulation results: timeseries CSVs and error JSONs."""
 
 import json
 from dataclasses import asdict, dataclass, field
@@ -77,7 +77,7 @@ class ErrorReport:
 
 
 class OutputWriter:
-    """Writes simulation outputs: timeseries CSVs, summary JSONs, and error JSONs."""
+    """Writes simulation outputs: timeseries CSVs and error JSONs."""
 
     def __init__(self, output_dir: Path) -> None:
         """Initialize output writer and create subdirectories.
@@ -97,7 +97,7 @@ class OutputWriter:
         simulation_result: SimulationResult,
         site_config: SiteConfig,
         shading_pct: float,
-    ) -> tuple[Path | None, Path]:
+    ) -> tuple[Path | None, dict | Path]:
         """Write all outputs for a simulation result.
 
         Args:
@@ -106,7 +106,8 @@ class OutputWriter:
             shading_pct: Shading percentage to apply as haircut.
 
         Returns:
-            Tuple of (timeseries_path or None if failed, summary_or_error_path).
+            Tuple of (timeseries_path, summary_dict) for success,
+            or (None, error_path) for failure.
         """
         filename_base = (
             f"{site_config.run_name}_{site_config.site_name}".replace(" ", "_")
@@ -129,16 +130,15 @@ class OutputWriter:
             hourly_data, site_config, simulation_result, shading_pct
         )
 
-        # Write files
+        # Write timeseries CSV
         timeseries_path = self._write_timeseries(hourly_data, filename_base)
-        summary_path = self._write_summary(metrics, filename_base)
 
-        logger.info(
-            f"Outputs written for {site_config.site_name}: "
-            f"{timeseries_path.name}, {summary_path.name}"
-        )
+        # Build summary dict (previously written as JSON, now stored in DB)
+        summary_dict = asdict(metrics)
 
-        return timeseries_path, summary_path
+        logger.info(f"Outputs written for {site_config.site_name}: {timeseries_path.name}")
+
+        return timeseries_path, summary_dict
 
     def _apply_shading_haircut(
         self, hourly_data: pd.DataFrame, shading_pct: float
@@ -233,21 +233,6 @@ class OutputWriter:
         path = self.timeseries_dir / f"{filename_base}_8760.csv"
         hourly_data.to_csv(path, index=False, float_format="%.4f")
         logger.debug(f"Timeseries written: {path}")
-        return path
-
-    def _write_summary(self, metrics: SummaryMetrics, filename_base: str) -> Path:
-        """Write summary metrics to JSON.
-
-        Args:
-            metrics: Calculated summary metrics.
-            filename_base: Base filename (without extension).
-
-        Returns:
-            Path to the written JSON file.
-        """
-        path = self.results_dir / f"{filename_base}_summary.json"
-        path.write_text(json.dumps(asdict(metrics), indent=2, default=str))
-        logger.debug(f"Summary written: {path}")
         return path
 
     def _write_error(

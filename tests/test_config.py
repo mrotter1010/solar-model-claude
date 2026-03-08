@@ -499,3 +499,156 @@ def test_report_direct_construction() -> None:
         report=True,
     )
     assert site.report is True
+
+
+# --- Cross-Row Coordinate Validation ---
+
+
+def _make_two_row_csv(
+    tmp_path: Path,
+    *,
+    run1: str = "Run1",
+    run2: str = "Run2",
+    site1: str = "SiteA",
+    site2: str = "SiteA",
+    lat1: float = 33.483,
+    lon1: float = -112.073,
+    lat2: float = 33.483,
+    lon2: float = -112.073,
+) -> Path:
+    """Build a two-row CSV with configurable run/site names and coordinates."""
+    import pandas as pd
+
+    base_row = {
+        "Customer": "TestCo",
+        "DC Size (MW)": 13,
+        "AC Installed (MW)": 10,
+        "AC POI (MW)": 10,
+        "Racking": "tracker",
+        "Tilt": 60,
+        "Azimuth": 180,
+        "Module Orientation": "portrait",
+        "Number of Modules": 2,
+        "Ground Clearance Height (m)": 1.8,
+        "Panel Model": "Test Panel",
+        "Bifacial": True,
+        "Inverter Model": "Test Inverter",
+        "GCR": 0.34,
+        "Shading (%)": 1,
+        "DC Wiring Loss (%)": 1.5,
+        "AC Wiring Loss (%)": 1.5,
+        "Transformer Losses (%)": 0,
+        "Degradation (%)": 0.3,
+        "Availability (%)": 98,
+        "Module Mismatch (%)": 1.5,
+        "LID(%)": 1,
+    }
+    rows = [
+        {"Run Name": run1, "Site Name": site1, "Latitude": lat1, "Longitude": lon1, **base_row},
+        {"Run Name": run2, "Site Name": site2, "Latitude": lat2, "Longitude": lon2, **base_row},
+    ]
+    csv_path = tmp_path / "cross_row_test.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    return csv_path
+
+
+def test_same_site_same_coords_passes(tmp_path: Path) -> None:
+    """Two rows with same site name and same lat/lon should pass."""
+    csv_path = _make_two_row_csv(tmp_path, site1="SiteA", site2="SiteA")
+    configs = load_config(csv_path)
+    assert len(configs) == 2
+
+
+def test_same_site_different_lat_fails(tmp_path: Path) -> None:
+    """Two rows with same site name but different latitude should fail."""
+    csv_path = _make_two_row_csv(tmp_path, lat2=34.0)
+
+    with pytest.raises(ConfigValidationError, match="conflicting coordinates") as exc_info:
+        load_config(csv_path)
+
+    assert exc_info.value.context["site_name"] == "SiteA"
+
+
+def test_same_site_different_lon_fails(tmp_path: Path) -> None:
+    """Two rows with same site name but different longitude should fail."""
+    csv_path = _make_two_row_csv(tmp_path, lon2=-110.0)
+
+    with pytest.raises(ConfigValidationError, match="conflicting coordinates") as exc_info:
+        load_config(csv_path)
+
+    assert exc_info.value.context["site_name"] == "SiteA"
+
+
+def test_different_sites_different_coords_passes(tmp_path: Path) -> None:
+    """Two rows with different site names can have different coordinates."""
+    csv_path = _make_two_row_csv(
+        tmp_path, site1="SiteA", site2="SiteB", lat2=34.0, lon2=-110.0
+    )
+    configs = load_config(csv_path)
+    assert len(configs) == 2
+
+
+# --- Duplicate Run Name Validation ---
+
+
+def test_different_run_names_passes(tmp_path: Path) -> None:
+    """Two rows with different run names should pass."""
+    csv_path = _make_two_row_csv(
+        tmp_path, run1="RunA", run2="RunB", site1="SiteA", site2="SiteB"
+    )
+    configs = load_config(csv_path)
+    assert len(configs) == 2
+
+
+def test_duplicate_run_names_fails(tmp_path: Path) -> None:
+    """Two rows with the same run name should fail."""
+    csv_path = _make_two_row_csv(
+        tmp_path, run1="RunA", run2="RunA", site1="SiteA", site2="SiteB"
+    )
+
+    with pytest.raises(ConfigValidationError, match="Duplicate run names") as exc_info:
+        load_config(csv_path)
+
+    assert "RunA" in exc_info.value.context["duplicate_run_names"]
+
+
+def test_three_rows_partial_duplicate_run_name_fails(tmp_path: Path) -> None:
+    """Three rows where two share a run name should fail, identifying the duplicate."""
+    import pandas as pd
+
+    base_row = {
+        "Customer": "TestCo",
+        "DC Size (MW)": 13,
+        "AC Installed (MW)": 10,
+        "AC POI (MW)": 10,
+        "Racking": "tracker",
+        "Tilt": 60,
+        "Azimuth": 180,
+        "Module Orientation": "portrait",
+        "Number of Modules": 2,
+        "Ground Clearance Height (m)": 1.8,
+        "Panel Model": "Test Panel",
+        "Bifacial": True,
+        "Inverter Model": "Test Inverter",
+        "GCR": 0.34,
+        "Shading (%)": 1,
+        "DC Wiring Loss (%)": 1.5,
+        "AC Wiring Loss (%)": 1.5,
+        "Transformer Losses (%)": 0,
+        "Degradation (%)": 0.3,
+        "Availability (%)": 98,
+        "Module Mismatch (%)": 1.5,
+        "LID(%)": 1,
+    }
+    rows = [
+        {"Run Name": "RunX", "Site Name": "SiteA", "Latitude": 33.0, "Longitude": -112.0, **base_row},
+        {"Run Name": "RunY", "Site Name": "SiteB", "Latitude": 34.0, "Longitude": -111.0, **base_row},
+        {"Run Name": "RunX", "Site Name": "SiteC", "Latitude": 35.0, "Longitude": -110.0, **base_row},
+    ]
+    csv_path = tmp_path / "three_row_dup_run.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+
+    with pytest.raises(ConfigValidationError, match="Duplicate run names") as exc_info:
+        load_config(csv_path)
+
+    assert exc_info.value.context["duplicate_run_names"] == ["RunX"]
