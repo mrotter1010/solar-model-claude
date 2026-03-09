@@ -260,6 +260,7 @@ class TestExtractSiteSummary:
             "capacity_factor_pct", "specific_yield_kwh_kwp",
             "performance_ratio_pct", "avg_daytime_ghi_wm2",
             "annual_ghi_kwh_m2", "weather_year",
+            "data_source", "resource_file_name",
         }
         assert set(result.keys()) == expected_keys
 

@@ -6,6 +6,8 @@ suitable for matplotlib charts and reportlab tables in the PDF report.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -273,6 +275,12 @@ def extract_site_summary(site_config: dict, loss_data: dict) -> dict:
         "avg_daytime_ghi_wm2": float(loss_data.get("avg_daytime_ghi_wm2", 0.0)),
         "annual_ghi_kwh_m2": float(loss_data.get("annual_ghi_kwh_m2", 0.0)),
         "weather_year": "2023",
+        "data_source": site_config.get("data_source", "nsrdb"),
+        "resource_file_name": (
+            Path(site_config["resource_file_path"]).name
+            if site_config.get("resource_file_path")
+            else None
+        ),
     }
 
 

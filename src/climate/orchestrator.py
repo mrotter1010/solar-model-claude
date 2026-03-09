@@ -7,6 +7,7 @@ from typing import Any
 from src.climate.cache_manager import CacheManager
 from src.climate.nsrdb_client import NSRDBClient
 from src.climate.soiling_calculator import calculate_monthly_soiling
+from src.climate.solcast_parser import parse_solcast_file
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import get_unique_locations
 from src.config.schema import SiteConfig
@@ -72,6 +73,68 @@ class ClimateOrchestrator:
         api_calls = 0
 
         for lat, lon in unique_locations:
+            # Step 0: Check for Solcast resource file at this location
+            solcast_file = next(
+                (
+                    site.resource_file_path
+                    for site in sites
+                    if site.latitude == lat
+                    and site.longitude == lon
+                    and site.resource_file_path is not None
+                ),
+                None,
+            )
+
+            if solcast_file is not None:
+                solcast_result = parse_solcast_file(solcast_file, lat, lon)
+                pysam_path = solcast_result["weather_file"]
+                logger.info(
+                    f"Using Solcast resource file for ({lat}, {lon}): {pysam_path}"
+                )
+
+                # ERA5 for precipitation (soiling) — still needed even with Solcast
+                monthly_soiling = None
+                if self.era5_client is not None:
+                    era5_data = self.era5_client(lat, lon, year)
+                    if era5_data is not None:
+                        monthly_precip_inches = era5_data["monthly_precip_inches"]
+                        monthly_soiling = calculate_monthly_soiling(
+                            monthly_precip_inches
+                        )
+                    else:
+                        logger.warning(
+                            f"ERA5-Land data unavailable for ({lat}, {lon}), "
+                            f"soiling will not be modeled"
+                        )
+
+                # Injecting ERA5 snow data would require rewriting the commercial
+                # resource file. We pass Solcast files directly to PySAM unmodified.
+                if not solcast_result["has_snow_depth"]:
+                    prompt = (
+                        f"\nWARNING: Solcast file for ({lat}, {lon}) does not "
+                        f"include a Snow Depth column. Snow losses will NOT be "
+                        f"modeled for this location.\n"
+                        f"Proceed without snow losses? (y/n): "
+                    )
+                    choice = input(prompt).strip().lower()
+                    if choice != "y":
+                        raise ClimateDataError(
+                            f"User aborted: Solcast file for ({lat}, {lon}) "
+                            f"missing Snow Depth column",
+                            context={
+                                "location": (lat, lon),
+                                "file": str(solcast_file),
+                            },
+                        )
+
+                results[(lat, lon)] = {
+                    "weather_file": pysam_path,
+                    "monthly_soiling": monthly_soiling,
+                    "data_source": "solcast",
+                    "solcast_metadata": solcast_result["metadata"],
+                }
+                continue
+
             # Step 1: Get NSRDB data (from cache or API)
             cached_path = self.cache_manager.get_cached_file(
                 lat, lon, max_age_days=max_age_days
@@ -92,6 +155,7 @@ class ClimateOrchestrator:
                     results[(lat, lon)] = {
                         "weather_file": path,
                         "monthly_soiling": None,
+                        "data_source": "nsrdb",
                     }
                     continue
 
@@ -126,6 +190,7 @@ class ClimateOrchestrator:
             results[(lat, lon)] = {
                 "weather_file": pysam_path,
                 "monthly_soiling": monthly_soiling,
+                "data_source": "nsrdb",
             }
 
         logger.info(

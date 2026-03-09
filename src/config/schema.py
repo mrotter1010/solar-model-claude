@@ -1,5 +1,6 @@
 """Pydantic validation model for solar site configuration."""
 
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -21,6 +22,9 @@ class SiteConfig(BaseModel):
 
     # Climate data
     weather_file_path: Path | None = None
+    resource_file_path: Path | None = None
+    data_source: str = "nsrdb"
+    solcast_metadata: dict | None = None
 
     # BESS (store but don't validate - for future use)
     bess_dispatch_required: float | None = None
@@ -64,6 +68,25 @@ class SiteConfig(BaseModel):
     availability_percent: float = Field(ge=0, le=100)
     module_mismatch_percent: float = Field(ge=0, le=100)
     lid_percent: float = Field(ge=0, le=100)
+
+    @field_validator("resource_file_path", mode="before")
+    @classmethod
+    def validate_resource_file_path(cls, v: object) -> Path | None:
+        """Validate resource file path from CSV input.
+
+        Handles None (empty cell), empty string, and validates that the
+        specified file exists and is readable on disk.
+        """
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        path = Path(v) if not isinstance(v, Path) else v
+        if not path.exists():
+            raise ValueError(f"Resource file not found: {path}")
+        if not path.is_file():
+            raise ValueError(f"Resource file path is not a file: {path}")
+        if not os.access(path, os.R_OK):
+            raise ValueError(f"Resource file is not readable: {path}")
+        return path
 
     @field_validator("report", mode="before")
     @classmethod

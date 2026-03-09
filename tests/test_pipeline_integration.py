@@ -12,6 +12,7 @@ from src.climate.nsrdb_client import NSRDBClient
 from src.climate.orchestrator import ClimateOrchestrator
 from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import load_config
+from src.config.schema import SiteConfig
 from src.pipeline import print_summary, run_climate_data_pipeline
 from tests.conftest import generate_mock_nsrdb_csv
 
@@ -467,3 +468,101 @@ class TestIntegrationArtifacts:
         log_path = log_dir / "integration_log.txt"
         log_path.write_text(caplog.text)
         assert log_path.exists()
+
+
+class TestDataSourceWiring:
+    """Tests that data_source and solcast_metadata flow from orchestrator to SiteConfig."""
+
+    SOLCAST_FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_solcast_tmy_phoenix.csv"
+    PHOENIX_LAT = 33.483
+    PHOENIX_LON = -112.073
+
+    def test_default_data_source_is_nsrdb(self) -> None:
+        """SiteConfig defaults data_source to 'nsrdb' when not explicitly set."""
+        site = SiteConfig(
+            run_name="Test", site_name="TestSite", customer="TestCo",
+            latitude=33.0, longitude=-112.0, dc_size_mw=10.0,
+            ac_installed_mw=8.0, ac_poi_mw=8.0, racking="tracker",
+            tilt=25.0, azimuth=180.0, module_orientation="portrait",
+            number_of_modules=2, ground_clearance_height_m=1.5,
+            panel_model="Test Panel", bifacial=True,
+            inverter_model="Test Inverter", gcr=0.4,
+            shading_percent=0.0, dc_wiring_loss_percent=0.0,
+            ac_wiring_loss_percent=0.0, transformer_losses_percent=0.0,
+            degradation_percent=0.0, availability_percent=0.0,
+            module_mismatch_percent=0.0, lid_percent=0.0,
+        )
+        assert site.data_source == "nsrdb"
+        assert site.solcast_metadata is None
+
+    def test_nsrdb_path_assigns_nsrdb_data_source(self, tmp_path: Path) -> None:
+        """NSRDB flow assigns data_source='nsrdb' via pipeline wiring."""
+        mock_nsrdb = MagicMock(spec=NSRDBClient)
+        mock_nsrdb.fetch_weather_data.return_value = generate_mock_nsrdb_csv(
+            lat=self.PHOENIX_LAT, lon=self.PHOENIX_LON, year=2024, num_hours=8760
+        )
+
+        orch = ClimateOrchestrator(
+            nsrdb_client=mock_nsrdb,
+            cache_manager=CacheManager(cache_dir=tmp_path / "cache"),
+            formatter=WeatherFormatter(),
+        )
+
+        sites = load_config(SINGLE_ROW_CSV)
+        location_results = orch.fetch_climate_data(sites, year=2024)
+
+        # Simulate pipeline assignment
+        for site in sites:
+            if site.location in location_results:
+                result = location_results[site.location]
+                site.weather_file_path = result["weather_file"]
+                site.data_source = result.get("data_source", "nsrdb")
+                site.solcast_metadata = result.get("solcast_metadata")
+
+        assert sites[0].data_source == "nsrdb"
+        assert sites[0].solcast_metadata is None
+
+    def test_solcast_path_assigns_solcast_data_source(self, tmp_path: Path) -> None:
+        """Solcast flow assigns data_source='solcast' and solcast_metadata via pipeline wiring."""
+        mock_nsrdb = MagicMock(spec=NSRDBClient)
+        mock_era5 = MagicMock(return_value={
+            "snow_depth_cm": [0.0] * 8760,
+            "monthly_precip_inches": [1.0] * 12,
+        })
+
+        orch = ClimateOrchestrator(
+            nsrdb_client=mock_nsrdb,
+            cache_manager=CacheManager(cache_dir=tmp_path / "cache"),
+            formatter=WeatherFormatter(),
+            era5_client=mock_era5,
+        )
+
+        site = SiteConfig(
+            run_name="Run_Solcast", site_name="Phoenix_Solcast", customer="TestCo",
+            latitude=self.PHOENIX_LAT, longitude=self.PHOENIX_LON,
+            dc_size_mw=13.0, ac_installed_mw=10.0, ac_poi_mw=10.0,
+            racking="tracker", tilt=60.0, azimuth=180.0,
+            module_orientation="portrait", number_of_modules=2,
+            ground_clearance_height_m=1.8, panel_model="Test Panel",
+            bifacial=True, inverter_model="Test Inverter", gcr=0.34,
+            shading_percent=1.0, dc_wiring_loss_percent=1.5,
+            ac_wiring_loss_percent=1.5, transformer_losses_percent=0.0,
+            degradation_percent=0.3, availability_percent=98.0,
+            module_mismatch_percent=1.5, lid_percent=1.0,
+            resource_file_path=self.SOLCAST_FIXTURE,
+        )
+
+        location_results = orch.fetch_climate_data([site], year=2024)
+
+        # Simulate pipeline assignment (same logic as run_climate_data_pipeline)
+        result = location_results[site.location]
+        site.weather_file_path = result["weather_file"]
+        site.data_source = result.get("data_source", "nsrdb")
+        site.solcast_metadata = result.get("solcast_metadata")
+
+        assert site.data_source == "solcast"
+        assert site.solcast_metadata is not None
+        assert site.solcast_metadata["source"] == "Solcast"
+        assert site.solcast_metadata["latitude"] == pytest.approx(self.PHOENIX_LAT)
+        assert site.weather_file_path == self.SOLCAST_FIXTURE
+        mock_nsrdb.fetch_weather_data.assert_not_called()

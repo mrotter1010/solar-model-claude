@@ -205,3 +205,72 @@ class TestBuildPdf:
 
         header = output_path.read_bytes()[:5]
         assert header == b"%PDF-"
+
+
+class TestResourceDataSourceLine:
+    """Tests for the Resource Data Source line in the PDF site summary."""
+
+    def test_pdf_generates_with_nsrdb_data_source(
+        self, tmp_path: Path, test_results_dir: Path
+    ) -> None:
+        """PDF generates without error when data_source is 'nsrdb'."""
+        monthly_path, waterfall_path = _generate_test_charts(tmp_path)
+        output_path = test_results_dir / "test_pdf_nsrdb_source.pdf"
+
+        summary = _make_site_summary()
+        summary["data_source"] = "nsrdb"
+        summary["resource_file_name"] = None
+
+        result = build_pdf(
+            output_path=output_path,
+            site_summary=summary,
+            narrative=_make_narrative(),
+            monthly_chart_path=monthly_path,
+            waterfall_chart_path=waterfall_path,
+        )
+
+        assert result == output_path
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_pdf_generates_with_solcast_data_source(
+        self, tmp_path: Path, test_results_dir: Path
+    ) -> None:
+        """PDF generates without error when data_source is 'solcast'."""
+        monthly_path, waterfall_path = _generate_test_charts(tmp_path)
+        output_path = test_results_dir / "test_pdf_solcast_source.pdf"
+
+        summary = _make_site_summary()
+        summary["data_source"] = "solcast"
+        summary["resource_file_name"] = "synthetic_solcast_tmy_phoenix.csv"
+
+        result = build_pdf(
+            output_path=output_path,
+            site_summary=summary,
+            narrative=_make_narrative(),
+            monthly_chart_path=monthly_path,
+            waterfall_chart_path=waterfall_path,
+        )
+
+        assert result == output_path
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_pdf_generates_with_default_data_source(
+        self, tmp_path: Path
+    ) -> None:
+        """PDF generates when data_source key is absent (backward compat)."""
+        monthly_path, waterfall_path = _generate_test_charts(tmp_path)
+        output_path = tmp_path / "report_default.pdf"
+
+        # Use original summary without data_source key
+        result = build_pdf(
+            output_path=output_path,
+            site_summary=_make_site_summary(),
+            narrative=_make_narrative(),
+            monthly_chart_path=monthly_path,
+            waterfall_chart_path=waterfall_path,
+        )
+
+        assert result == output_path
+        assert output_path.exists()

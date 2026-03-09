@@ -41,6 +41,7 @@ COLUMN_MAP: dict[str, str] = {
     "Module Mismatch (%)": "module_mismatch_percent",
     "LID(%)": "lid_percent",
     "Report": "report",
+    "Resource File Path": "resource_file_path",
 }
 
 

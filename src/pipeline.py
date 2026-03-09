@@ -70,6 +70,8 @@ def run_climate_data_pipeline(
         if site.location in location_results:
             result = location_results[site.location]
             site.weather_file_path = result["weather_file"]
+            site.data_source = result.get("data_source", "nsrdb")
+            site.solcast_metadata = result.get("solcast_metadata")
             soiling_lookup[site.location] = result["monthly_soiling"]
 
     print_summary(sites, location_results)

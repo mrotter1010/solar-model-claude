@@ -1,5 +1,6 @@
 """Tests for database write service and queries using solar_model_test database."""
 
+import json
 import uuid
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from src.config.schema import SiteConfig
 from src.database.connection import get_engine
 from src.database.models import Base, Customer, Run, RunInput, RunResult, Site
 from src.database.queries import recreate_run_input
-from src.database.writer import save_run_to_db
+from src.database.writer import build_data_sources, save_run_to_db
 from src.utils.exceptions import SolarModelError
 
 TEST_DB_URL = "postgresql://solar_model:solar_model@localhost:5432/solar_model_test"
@@ -492,3 +493,48 @@ class TestRecreateRunInput:
         """Passing a non-UUID string raises SolarModelError."""
         with pytest.raises(SolarModelError, match="Invalid run ID format"):
             recreate_run_input("not-a-uuid", database_url=TEST_DB_URL)
+
+
+# ---------------------------------------------------------------------------
+# Data source string construction (no DB required)
+# ---------------------------------------------------------------------------
+
+SOLCAST_FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_solcast_tmy_phoenix.csv"
+
+
+class TestBuildDataSources:
+    """Tests for the build_data_sources helper function."""
+
+    def test_nsrdb_default(self) -> None:
+        """NSRDB site produces the legacy plain-text string."""
+        site = _make_site_config()
+        result = build_data_sources(site)
+        assert result == "NSRDB v4.0.0, Open-Meteo ERA5"
+
+    def test_nsrdb_explicit(self) -> None:
+        """Explicitly setting data_source='nsrdb' produces the legacy string."""
+        site = _make_site_config(data_source="nsrdb")
+        result = build_data_sources(site)
+        assert result == "NSRDB v4.0.0, Open-Meteo ERA5"
+
+    def test_solcast_structure(self) -> None:
+        """Solcast site produces a JSON string with provider and filename."""
+        site = _make_site_config(
+            data_source="solcast",
+            resource_file_path=SOLCAST_FIXTURE,
+        )
+        result = build_data_sources(site)
+        parsed = json.loads(result)
+
+        assert parsed["solar_resource"]["provider"] == "Solcast"
+        assert parsed["solar_resource"]["file"] == "synthetic_solcast_tmy_phoenix.csv"
+        assert parsed["solar_resource"]["format"] == "SAM CSV"
+        assert parsed["supplementary"]["provider"] == "Open-Meteo ERA5"
+        assert "precipitation" in parsed["supplementary"]["data"]
+
+    def test_solcast_without_resource_path(self) -> None:
+        """Solcast with no resource_file_path uses 'unknown' as filename."""
+        site = _make_site_config(data_source="solcast")
+        result = build_data_sources(site)
+        parsed = json.loads(result)
+        assert parsed["solar_resource"]["file"] == "unknown"

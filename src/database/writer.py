@@ -1,5 +1,6 @@
 """Database write service for persisting pipeline run results."""
 
+import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,37 @@ def _get_git_hash() -> str | None:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return None
+
+
+def build_data_sources(site_config: SiteConfig) -> str:
+    """Build the data_sources string for a pipeline run.
+
+    Args:
+        site_config: Site configuration with data_source and optional
+            resource_file_path / solcast_metadata fields.
+
+    Returns:
+        For NSRDB runs: the legacy plain-text string.
+        For Solcast runs: a JSON string with structured provider info.
+    """
+    if site_config.data_source == "solcast":
+        filename = (
+            site_config.resource_file_path.name
+            if site_config.resource_file_path is not None
+            else "unknown"
+        )
+        return json.dumps({
+            "solar_resource": {
+                "provider": "Solcast",
+                "file": filename,
+                "format": "SAM CSV",
+            },
+            "supplementary": {
+                "provider": "Open-Meteo ERA5",
+                "data": ["precipitation"],
+            },
+        })
+    return "NSRDB v4.0.0, Open-Meteo ERA5"
 
 
 def _upsert_customer(session: Session, customer_name: str) -> Customer:
@@ -131,7 +163,7 @@ def save_run_to_db(
             run_name=site_config.run_name,
             timestamp=datetime.now(timezone.utc),
             git_hash=_get_git_hash(),
-            data_sources="NSRDB v4.0.0, Open-Meteo ERA5",
+            data_sources=build_data_sources(site_config),
             weather_year=summary.get("weather_year", 0),
             status="success",
         )

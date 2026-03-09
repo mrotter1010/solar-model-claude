@@ -432,12 +432,17 @@ class ModelConfigurator:
         default_albedo = 0.2
         try:
             df = pd.read_csv(weather_file_path, skiprows=2)
+            # Find albedo column by SAM alias (Solcast uses "Albedo", NSRDB uses "Surface Albedo")
+            albedo_col = next(
+                (c for c in df.columns if c.lower() in ("surface albedo", "albedo", "alb")),
+                "Surface Albedo",
+            )
             df["Month"] = pd.to_datetime(
                 df["Year"].astype(str) + "-" + df["Month"].astype(str) + "-" + df["Day"].astype(str),
                 format="%Y-%m-%d",
             ).dt.month
             monthly_albedo = [
-                df[df["Month"] == m]["Surface Albedo"].mean() for m in range(1, 13)
+                df[df["Month"] == m][albedo_col].mean() for m in range(1, 13)
             ]
             # Replace NaN with default for months with no data
             return [

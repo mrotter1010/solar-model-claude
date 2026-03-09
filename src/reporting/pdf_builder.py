@@ -138,6 +138,23 @@ def _format_table_value(key: str, value: object) -> str:
     return str(value)
 
 
+def _format_data_source(site_summary: dict) -> str:
+    """Format the resource data source display string.
+
+    Args:
+        site_summary: Site summary dict with data_source and
+            optional resource_file_name keys.
+
+    Returns:
+        "NSRDB" or "Solcast (filename.csv)" depending on data source.
+    """
+    source = site_summary.get("data_source", "nsrdb")
+    if source == "solcast":
+        filename = site_summary.get("resource_file_name", "")
+        return f"Solcast ({filename})" if filename else "Solcast"
+    return "NSRDB"
+
+
 def _build_site_summary_tables(
     site_summary: dict, styles: dict[str, ParagraphStyle]
 ) -> list:
@@ -168,6 +185,7 @@ def _build_site_summary_tables(
         ("GCR", _format_table_value("gcr", site_summary.get("gcr", 0))),
         ("Module", f"{site_summary.get('module_model', '')} ({'Bifacial' if site_summary.get('bifacial') else 'Monofacial'})"),
         ("Inverter", site_summary.get("inverter_model", "")),
+        ("Resource Data Source", _format_data_source(site_summary)),
     ]
 
     results_rows = [

@@ -555,3 +555,49 @@ class TestArtifactWriter:
 
         output_path.write_text("\n".join(lines))
         assert output_path.exists()
+
+
+# --- Monthly Albedo Column Alias ---
+
+
+def test_monthly_albedo_solcast_alias(tmp_path: Path) -> None:
+    """_calculate_monthly_albedo should accept 'Albedo' column name (Solcast convention)."""
+    import pandas as pd
+
+    # Build a minimal PySAM-format CSV with "Albedo" instead of "Surface Albedo"
+    csv_path = tmp_path / "solcast_albedo.csv"
+    header1 = "Latitude,Longitude,Time Zone,Elevation"
+    header2 = "33.483,-112.073,-7,343"
+
+    hours = []
+    for month in range(1, 13):
+        days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+        for day in range(1, days_in_month + 1):
+            for hour in range(24):
+                hours.append({
+                    "Year": 2024,
+                    "Month": month,
+                    "Day": day,
+                    "Hour": hour,
+                    "Minute": 30,
+                    "GHI": 0,
+                    "DNI": 0,
+                    "DHI": 0,
+                    "Tdry": 25.0,
+                    "Wspd": 3.0,
+                    "Albedo": 0.18,
+                })
+
+    df = pd.DataFrame(hours)
+    with open(csv_path, "w") as f:
+        f.write(header1 + "\n")
+        f.write(header2 + "\n")
+        df.to_csv(f, index=False, lineterminator="\n")
+
+    # Act
+    result = ModelConfigurator._calculate_monthly_albedo(csv_path)
+
+    # Assert — should return 12 monthly floats, all ~0.18
+    assert len(result) == 12
+    assert all(isinstance(v, float) for v in result)
+    assert all(abs(v - 0.18) < 0.01 for v in result)
