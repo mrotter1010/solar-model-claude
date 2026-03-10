@@ -5,14 +5,15 @@ Python-based solar production modeling tool using NREL's PySAM detailed photovol
 ## Architecture Overview
 
 ```
-CSV Input → Climate Data (NSRDB + Open-Meteo) → PySAM Simulation → 8760 Timeseries + PDF Report → Database Storage
+CSV Input → Climate Data (NSRDB/Solcast + Open-Meteo) → PySAM Simulation → Subhourly Correction → 8760 Timeseries + PDF Report → Database Storage
 ```
 
 1. **CSV Input**: Site parameters including location (lat/lon), system design, panel/inverter models, and loss assumptions
-2. **Climate Data**: Fetches TMY/historical weather from NSRDB v4.0.0 and snow/soiling data from Open-Meteo ERA5
+2. **Climate Data**: Fetches TMY/historical weather from NSRDB v4.0.0 or Solcast TMY files, plus snow/soiling data from Open-Meteo ERA5
 3. **PySAM Simulation**: Runs NREL's System Advisor Model detailed PV simulation (CEC Performance Model)
-4. **Output**: Per-site 8760 hourly timeseries CSV, customer PDF report with waterfall loss chart
-5. **Database**: Stores all run inputs, results, and metrics in TimescaleDB/PostgreSQL
+4. **Subhourly Correction**: ML model adjusts for inverter clipping losses missed by hourly-resolution modeling
+5. **Output**: Per-site 8760 hourly timeseries CSV, customer PDF report with waterfall loss chart
+6. **Database**: Stores all run inputs, results, and metrics in TimescaleDB/PostgreSQL
 
 ## Setup
 
@@ -178,3 +179,11 @@ The pipeline will:
 4. **Output Processing** — 8760 timeseries generation, summary metrics, shading haircut
 5. **Climate & Reporting** — Open-Meteo ERA5 snow/soiling, NSRDB v4.0.0 migration, customer PDF reports with waterfall loss charts
 6. **Database Integration** — TimescaleDB/PostgreSQL schema, SQLAlchemy ORM, Alembic migrations, run tracking, CSV input reconstruction
+7. **Solcast TMY Ingest** — Solcast TMY file parser, auto-detection of resource file path in CSV, pipeline branching by data source, DB and PDF updates
+8. **Subhourly Resolution Correction** — ML model correcting for inverter clipping losses missed by hourly-resolution PySAM simulation
+   - Gradient Boosting model trained on 6,480 paired PySAM simulations (45 CONUS sites × 72 configurations × 2 temporal resolutions)
+   - Leave-one-site-out cross-validation: Global R² = 0.85, RMSE = 0.25%
+   - Loss-only correction clamped to ≥ 0% per industry practice (DNV Hourly Modeling Correction standard)
+   - Applied after PySAM, before output generation — reflected in waterfall chart ("Subhourly Clipping" step), PDF narrative, and database columns
+   - Both raw (pre-correction) and adjusted annual energy preserved for audit trail
+   - 447 tests passing

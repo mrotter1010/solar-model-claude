@@ -252,6 +252,7 @@ class TestTimeseriesExtraction:
             "timestamp",
             "ac_gross",
             "ac_net",
+            "dc_net",
             "poa_irradiance",
             "poa_nominal",
             "cell_temperature",

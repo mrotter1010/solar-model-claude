@@ -445,3 +445,128 @@ class TestGenerateNarrative:
             assert label in result["loss_summary"], (
                 f"Missing loss group '{label}' in loss_summary"
             )
+
+
+# ---------------------------------------------------------------------------
+# Subhourly correction in waterfall
+# ---------------------------------------------------------------------------
+
+
+class TestSubhourlyInWaterfall:
+    """Tests for subhourly clipping step in loss waterfall."""
+
+    def test_subhourly_step_present_when_correction_applied(self) -> None:
+        """Waterfall includes 'Subhourly Clipping' step when field is in loss_data."""
+        loss_data = _make_loss_data(subhourly_correction_pct=0.3)
+        steps = extract_loss_waterfall(loss_data)
+
+        labels = [s["label"] for s in steps]
+        assert "Subhourly Clipping" in labels
+
+    def test_subhourly_step_positioned_before_net_energy(self) -> None:
+        """Subhourly Clipping appears right before Net AC Energy."""
+        loss_data = _make_loss_data(subhourly_correction_pct=0.3)
+        steps = extract_loss_waterfall(loss_data)
+
+        labels = [s["label"] for s in steps]
+        subhourly_idx = labels.index("Subhourly Clipping")
+        net_idx = labels.index("Net AC Energy")
+        assert subhourly_idx == net_idx - 1
+
+    def test_subhourly_step_is_loss_type(self) -> None:
+        """Subhourly Clipping step has type 'loss'."""
+        loss_data = _make_loss_data(subhourly_correction_pct=0.3)
+        steps = extract_loss_waterfall(loss_data)
+
+        subhourly = next(s for s in steps if s["label"] == "Subhourly Clipping")
+        assert subhourly["type"] == "loss"
+
+    def test_subhourly_energy_delta_correct(self) -> None:
+        """Subhourly energy delta = annual_energy * correction_pct / 100."""
+        loss_data = _make_loss_data(subhourly_correction_pct=0.5)
+        steps = extract_loss_waterfall(loss_data)
+
+        subhourly = next(s for s in steps if s["label"] == "Subhourly Clipping")
+        expected = 28935577.0 * 0.5 / 100
+        assert subhourly["energy_kwh"] == pytest.approx(expected, rel=1e-4)
+
+    def test_net_energy_reflects_correction(self) -> None:
+        """Net AC Energy end bar is reduced by the subhourly correction."""
+        loss_data = _make_loss_data(subhourly_correction_pct=0.5)
+        steps = extract_loss_waterfall(loss_data)
+
+        end_step = next(s for s in steps if s["type"] == "end")
+        expected = 28935577.0 * (1 - 0.5 / 100)
+        assert end_step["energy_kwh"] == pytest.approx(expected, rel=1e-4)
+
+    def test_zero_correction_still_shown(self) -> None:
+        """A 0.0% correction still appears as a waterfall step."""
+        loss_data = _make_loss_data(subhourly_correction_pct=0.0)
+        steps = extract_loss_waterfall(loss_data)
+
+        labels = [s["label"] for s in steps]
+        assert "Subhourly Clipping" in labels
+
+        subhourly = next(s for s in steps if s["label"] == "Subhourly Clipping")
+        assert subhourly["energy_kwh"] == pytest.approx(0.0)
+        assert subhourly["loss_percent"] == pytest.approx(0.0)
+
+    def test_absent_correction_omits_step(self) -> None:
+        """Waterfall has no 'Subhourly Clipping' when field is absent from loss_data."""
+        loss_data = _make_loss_data()  # No subhourly_correction_pct key
+        steps = extract_loss_waterfall(loss_data)
+
+        labels = [s["label"] for s in steps]
+        assert "Subhourly Clipping" not in labels
+
+    def test_net_energy_unchanged_without_correction(self) -> None:
+        """Net AC Energy equals annual_energy when correction is absent."""
+        loss_data = _make_loss_data()
+        steps = extract_loss_waterfall(loss_data)
+
+        end_step = next(s for s in steps if s["type"] == "end")
+        assert end_step["energy_kwh"] == pytest.approx(28935577.0)
+
+
+# ---------------------------------------------------------------------------
+# Subhourly correction in narrative
+# ---------------------------------------------------------------------------
+
+
+class TestSubhourlyInNarrative:
+    """Tests for subhourly correction note in narrative text."""
+
+    def _build_inputs(self, **loss_overrides: object) -> tuple[dict, dict, list[dict]]:
+        """Build narrative inputs with optional loss_data overrides."""
+        site_config = _make_site_config()
+        loss_data = _make_loss_data(**loss_overrides)
+        site_summary = extract_site_summary(site_config, loss_data)
+        waterfall_data = extract_loss_waterfall(loss_data)
+        return site_summary, loss_data, waterfall_data
+
+    def test_positive_correction_note(self) -> None:
+        """Narrative includes methodology note for positive correction."""
+        site_summary, loss_data, waterfall_data = self._build_inputs(
+            subhourly_correction_pct=0.3, subhourly_model_version="v1"
+        )
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "subhourly resolution correction of 0.30%" in result["loss_summary"]
+        assert "model version: v1" in result["loss_summary"]
+        assert "45 CONUS sites" in result["loss_summary"]
+
+    def test_zero_correction_note(self) -> None:
+        """Narrative includes 'no additional clipping' note for zero correction."""
+        site_summary, loss_data, waterfall_data = self._build_inputs(
+            subhourly_correction_pct=0.0, subhourly_model_version="v1"
+        )
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "no additional clipping loss" in result["loss_summary"]
+
+    def test_absent_correction_omits_note(self) -> None:
+        """Narrative has no subhourly note when correction was not applied."""
+        site_summary, loss_data, waterfall_data = self._build_inputs()
+        result = generate_narrative(site_summary, loss_data, waterfall_data)
+
+        assert "subhourly" not in result["loss_summary"].lower()

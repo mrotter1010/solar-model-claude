@@ -190,6 +190,11 @@ class RunResult(Base):
     annual_dc_nominal: Mapped[float | None] = mapped_column(Float, nullable=True)
     annual_snow_loss_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Subhourly resolution correction (nullable for older/skipped runs)
+    subhourly_correction_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    subhourly_model_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    raw_annual_energy_mwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Monthly and detailed data (JSON)
     monthly_energy: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     monthly_snow_loss: Mapped[dict | None] = mapped_column(JSON, nullable=True)

@@ -267,6 +267,44 @@ class TestSaveRunToDb:
             assert len(row["git_hash"]) >= 7  # short hash
         engine.dispose()
 
+    def test_subhourly_fields_stored_when_present(self) -> None:
+        """Subhourly correction fields are stored when present in summary."""
+        site_config = _make_site_config()
+        summary = _make_summary(
+            subhourly_correction_pct=0.3,
+            subhourly_model_version="v1",
+            raw_annual_energy_mwh=29100.0,
+        )
+
+        save_run_to_db(
+            site_config=site_config, summary=summary, database_url=TEST_DB_URL
+        )
+
+        engine = get_engine(url=TEST_DB_URL)
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM run_results LIMIT 1")).mappings().first()
+            assert row["subhourly_correction_pct"] == pytest.approx(0.3)
+            assert row["subhourly_model_version"] == "v1"
+            assert row["raw_annual_energy_mwh"] == pytest.approx(29100.0)
+        engine.dispose()
+
+    def test_subhourly_fields_null_when_absent(self) -> None:
+        """Subhourly correction fields are NULL when not in summary."""
+        site_config = _make_site_config()
+        summary = _make_summary()  # No subhourly fields
+
+        save_run_to_db(
+            site_config=site_config, summary=summary, database_url=TEST_DB_URL
+        )
+
+        engine = get_engine(url=TEST_DB_URL)
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM run_results LIMIT 1")).mappings().first()
+            assert row["subhourly_correction_pct"] is None
+            assert row["subhourly_model_version"] is None
+            assert row["raw_annual_energy_mwh"] is None
+        engine.dispose()
+
 
 # ---------------------------------------------------------------------------
 # Upsert behavior

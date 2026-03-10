@@ -34,6 +34,7 @@ def _make_hourly_data(hours: int = 8760, ac_value: float = 100.0) -> pd.DataFram
             "timestamp": timestamps,
             "ac_gross": [ac_value] * hours,
             "ac_net": [ac_value] * hours,
+            "dc_net": [ac_value * 1.05] * hours,
             "poa_irradiance": [500.0] * hours,
             "poa_nominal": [520.0] * hours,
             "cell_temperature": [35.0] * hours,

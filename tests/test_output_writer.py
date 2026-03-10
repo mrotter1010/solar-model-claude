@@ -62,6 +62,7 @@ def _make_hourly_data(
             "timestamp": timestamps,
             "ac_gross": [ac_gross_kw] * num_hours,
             "ac_net": [ac_gross_kw] * num_hours,
+            "dc_net": [ac_gross_kw * 1.05] * num_hours,
             "poa_irradiance": [poa_w_per_m2] * num_hours,
             "poa_nominal": [poa_w_per_m2 * 1.04] * num_hours,
             "cell_temperature": [30.0] * num_hours,
@@ -256,7 +257,7 @@ class TestTimeseriesCSV:
         df = pd.read_csv(path)
         assert len(df) == 8760
         expected_cols = {
-            "timestamp", "ac_gross", "ac_net",
+            "timestamp", "ac_gross", "ac_net", "dc_net",
             "poa_irradiance", "poa_nominal", "cell_temperature", "inverter_efficiency",
         }
         assert set(df.columns) == expected_cols

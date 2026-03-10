@@ -214,10 +214,29 @@ def extract_loss_waterfall(loss_data: dict) -> list[dict]:
             ]),
         })
 
-    # f. End: Net AC Energy
+    # f. Subhourly Clipping (if correction was applied)
+    # Present when subhourly_correction_pct is in loss_data (even if 0.0%).
+    # Omitted when the correction model was unavailable (key absent).
+    subhourly_pct = loss_data.get("subhourly_correction_pct")
+    if subhourly_pct is not None:
+        subhourly_delta = annual_energy * subhourly_pct / 100
+        final_energy = annual_energy - subhourly_delta
+        steps.append({
+            "label": "Subhourly Clipping",
+            "energy_kwh": subhourly_delta,
+            "loss_percent": subhourly_pct,
+            "type": "loss",
+            "sub_losses": _filter_sub_losses([
+                {"label": "Subhourly Clipping", "percent": subhourly_pct},
+            ]),
+        })
+    else:
+        final_energy = annual_energy
+
+    # g. End: Net AC Energy
     steps.append({
         "label": "Net AC Energy",
-        "energy_kwh": annual_energy,
+        "energy_kwh": final_energy,
         "loss_percent": 0.0,
         "type": "end",
         "sub_losses": [],
@@ -225,7 +244,7 @@ def extract_loss_waterfall(loss_data: dict) -> list[dict]:
 
     logger.info(
         f"Loss waterfall: {len(steps)} steps, "
-        f"nominal={annual_dc_nominal:,.0f} kWh → net={annual_energy:,.0f} kWh"
+        f"nominal={annual_dc_nominal:,.0f} kWh → net={final_energy:,.0f} kWh"
     )
 
     return steps
@@ -421,6 +440,26 @@ def generate_narrative(
         f"the system delivers {_fmt_int(net_kwh / 1000)} MWh after "
         f"accounting for system losses.\n" + "\n".join(sentences)
     )
+
+    # Subhourly correction methodology note (if applied)
+    subhourly_pct = loss_data.get("subhourly_correction_pct")
+    if subhourly_pct is not None:
+        model_version = loss_data.get("subhourly_model_version", "unknown")
+        if subhourly_pct > 0:
+            loss_summary += (
+                f"\nA subhourly resolution correction of {subhourly_pct:.2f}% "
+                f"was applied to account for inverter clipping losses not "
+                f"captured by hourly-resolution modeling. This correction is "
+                f"based on a machine learning model trained on paired 5-minute "
+                f"and 60-minute PySAM simulations across 45 CONUS sites "
+                f"(model version: {model_version})."
+            )
+        else:
+            loss_summary += (
+                "\nThe subhourly resolution correction model was applied but "
+                "predicted no additional clipping loss for this system "
+                "configuration."
+            )
 
     total_chars = (
         len(site_overview) + len(solar_resource)

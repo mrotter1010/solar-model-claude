@@ -113,6 +113,7 @@ class PySAMSimulator:
 
         # PySAM standard output arrays
         gen = list(outputs.gen)  # AC output in kW
+        dc_net = list(outputs.dc_net)  # DC output after losses in kW
         poa_eff = list(outputs.subarray1_poa_eff)  # Effective POA W/m2
         poa_nom = list(outputs.subarray1_poa_nom)  # Nominal POA W/m2
         cell_temp = list(outputs.subarray1_celltemp)  # Cell temperature C
@@ -129,6 +130,7 @@ class PySAMSimulator:
                 "timestamp": timestamps,
                 "ac_gross": gen,
                 "ac_net": gen,
+                "dc_net": dc_net,
                 "poa_irradiance": poa_eff,
                 "poa_nominal": poa_nom,
                 "cell_temperature": cell_temp,

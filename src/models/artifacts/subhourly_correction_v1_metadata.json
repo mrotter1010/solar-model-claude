@@ -1,0 +1,54 @@
+{
+  "model_type": "GradientBoostingRegressor",
+  "training_date": "2026-03-10",
+  "feature_list": [
+    "dcac_ratio",
+    "gcr",
+    "racking",
+    "latitude",
+    "longitude",
+    "cf_60min",
+    "annual_ghi",
+    "mean_kt",
+    "std_kt",
+    "ghi_cv",
+    "mean_dni",
+    "pct_clear_hours",
+    "climate_cloudy",
+    "climate_variable"
+  ],
+  "target_variable": "resolution_correction_pct",
+  "target_description": "Percentage correction for subhourly resolution effects. Positive = hourly overestimates, negative = hourly underestimates.",
+  "training_data_rows": 3240,
+  "training_data_sites": 45,
+  "loso_cv_metrics": {
+    "rmse": 0.17950539762148107,
+    "mae": 0.13939599641926792,
+    "r2_global": 0.8479836893920311,
+    "r2_mean_fold": 0.6445818039255747
+  },
+  "correction_range": {
+    "min": -1.6746832402930625,
+    "max": 0.6099764435408834,
+    "mean": -0.4167100922705041,
+    "std": 0.4603969289460554
+  },
+  "feature_sources": {
+    "dcac_ratio": "from input CSV",
+    "gcr": "from input CSV",
+    "racking": "from input CSV (binary: 1=tracker, 0=fixed)",
+    "latitude": "from input CSV or site metadata",
+    "longitude": "from input CSV or site metadata",
+    "cf_60min": "from hourly PySAM simulation capacity factor",
+    "annual_ghi": "computed from hourly weather file",
+    "mean_kt": "computed from hourly weather file",
+    "std_kt": "computed from hourly weather file",
+    "ghi_cv": "computed from hourly weather file",
+    "mean_dni": "computed from hourly weather file",
+    "pct_clear_hours": "computed from hourly weather file",
+    "climate_cloudy": "one-hot encoded from climate_type classification (derived from weather data)",
+    "climate_variable": "one-hot encoded from climate_type classification (derived from weather data)"
+  },
+  "version": "v1",
+  "notes": "Trained on NSRDB 5-min vs 60-min paired PySAM simulations. Captures satellite-observable portion of subhourly resolution effect. Ground-truth 1-min data would show larger corrections."
+}
