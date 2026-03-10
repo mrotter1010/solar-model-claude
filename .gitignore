@@ -41,6 +41,13 @@ data/
 .env
 *.log
 
+# Research data (large cached/generated files)
+research/**/cache/
+research/**/*.csv
+research/**/*.txt
+research_sites.csv
+test_results/
+
 # Testing
 .pytest_cache/
 .coverage
