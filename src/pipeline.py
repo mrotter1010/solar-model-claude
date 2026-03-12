@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from src.climate.cache_manager import CacheManager
 from src.climate.config import ClimateConfig
 from src.climate.era5_client import fetch_era5_land_data
@@ -12,6 +14,11 @@ from src.climate.weather_formatter import WeatherFormatter
 from src.config.loader import load_config
 from src.config.schema import SiteConfig
 from src.database.writer import save_run_to_db
+from src.climate.open_meteo_client import get_elevation_m
+from src.models.nsrdb_bias_correction import (
+    apply_bias_correction,
+    get_model_version as get_bias_model_version,
+)
 from src.models.subhourly_correction import (
     compute_weather_features,
     get_model_version,
@@ -146,6 +153,90 @@ class SolarModelingPipeline:
         )
         self.output_writer = OutputWriter(output_dir=output_dir)
 
+    def _apply_nsrdb_bias_correction(
+        self, site: SiteConfig
+    ) -> dict | None:
+        """Apply NSRDB bias correction to a site's weather file.
+
+        Reads the SAM-format weather CSV, applies monthly GHI/DNI correction
+        factors from the trained model, and writes the corrected data back
+        to the same file path so PySAM picks it up transparently.
+
+        Skips correction for Solcast-sourced data or sites without weather files.
+
+        Args:
+            site: Site configuration with weather file path and location.
+
+        Returns:
+            Metadata dict with correction details, or None if skipped.
+        """
+        # Skip for non-NSRDB data sources
+        if site.data_source != "nsrdb":
+            logger.debug(
+                f"Bias correction skipped for {site.site_name}: "
+                f"data_source={site.data_source}"
+            )
+            return None
+
+        # Skip if Solcast resource file is set
+        if site.resource_file_path is not None:
+            logger.debug(
+                f"Bias correction skipped for {site.site_name}: "
+                f"resource_file_path is set (Solcast)"
+            )
+            return None
+
+        if site.weather_file_path is None or not site.weather_file_path.exists():
+            logger.debug(
+                f"Bias correction skipped for {site.site_name}: "
+                f"no weather file"
+            )
+            return None
+
+        try:
+            # Look up elevation
+            elevation_m = get_elevation_m(site.latitude, site.longitude)
+
+            # Read the SAM weather CSV (2-row metadata header + data)
+            header_df = pd.read_csv(site.weather_file_path, nrows=1)
+            weather_df = pd.read_csv(site.weather_file_path, skiprows=2)
+
+            # Apply bias correction
+            corrected_df, correction_metadata = apply_bias_correction(
+                weather_df, site.latitude, site.longitude, elevation_m,
+            )
+
+            # Extract original metadata for rewriting the header
+            tz = 0
+            elev = 0
+            if "Time Zone" in header_df.columns:
+                tz = int(header_df["Time Zone"].iloc[0])
+            elif "Local Time Zone" in header_df.columns:
+                tz = int(header_df["Local Time Zone"].iloc[0])
+            if "Elevation" in header_df.columns:
+                elev = int(header_df["Elevation"].iloc[0])
+
+            # Write corrected data back to the same file path
+            with site.weather_file_path.open("w") as f:
+                f.write("Latitude,Longitude,Time Zone,Elevation\n")
+                f.write(
+                    f"{site.latitude},{site.longitude},{tz},{elev}\n"
+                )
+                corrected_df.to_csv(f, index=False)
+
+            logger.info(
+                f"Applied NSRDB bias correction for {site.site_name}: "
+                f"GHI factor={correction_metadata['mean_ghi_correction_factor']:.4f}, "
+                f"DNI factor={correction_metadata['mean_dni_correction_factor']:.4f}"
+            )
+            return correction_metadata
+
+        except Exception as exc:
+            logger.warning(
+                f"Bias correction failed for {site.site_name}: {exc}"
+            )
+            return None
+
     def _apply_subhourly_correction(
         self, result: SimulationResult, site: SiteConfig
     ) -> dict[str, object]:
@@ -279,6 +370,13 @@ class SolarModelingPipeline:
                 f"{len(sites_without_weather)} sites missing weather data: {names}"
             )
 
+        # Step 2.5: Apply NSRDB bias correction to weather files
+        bias_correction_lookup: dict[str, dict] = {}
+        for site in site_configs:
+            bias_meta = self._apply_nsrdb_bias_correction(site)
+            if bias_meta is not None:
+                bias_correction_lookup[site.site_name] = bias_meta
+
         # Step 3: Run PySAM simulations
         logger.info("Running PySAM simulations...")
         successful, failed = self.batch_simulator.run_batch(
@@ -312,6 +410,10 @@ class SolarModelingPipeline:
             )
             if ts_path is not None:
                 timeseries_files.append(ts_path)
+            # Merge bias correction metadata into summary (if applied)
+            if result.site_name in bias_correction_lookup:
+                summary.update(bias_correction_lookup[result.site_name])
+
             if correction_metadata:
                 summary.update(correction_metadata)
                 # Inject into loss_data so waterfall chart and narrative

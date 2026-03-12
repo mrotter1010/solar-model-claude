@@ -190,6 +190,12 @@ class RunResult(Base):
     annual_dc_nominal: Mapped[float | None] = mapped_column(Float, nullable=True)
     annual_snow_loss_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # NSRDB bias correction (nullable for Solcast/skipped runs)
+    bias_correction_applied: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    bias_correction_model_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    mean_ghi_correction_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mean_dni_correction_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Subhourly resolution correction (nullable for older/skipped runs)
     subhourly_correction_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     subhourly_model_version: Mapped[str | None] = mapped_column(String, nullable=True)

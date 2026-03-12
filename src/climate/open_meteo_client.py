@@ -1,7 +1,7 @@
-"""Open-Meteo Historical Weather API client for snow depth and precipitation.
+"""Open-Meteo API client for ERA5 weather data and elevation lookup.
 
-Fetches hourly ERA5 reanalysis data via Open-Meteo's free REST API.
-No API key required. Response time ~2 seconds for a full year.
+Fetches hourly ERA5 reanalysis data and site elevation via Open-Meteo's
+free REST APIs. No API key required.
 """
 
 import calendar
@@ -15,6 +15,67 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 OPEN_METEO_URL = "https://archive-api.open-meteo.com/v1/archive"
+OPEN_METEO_ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
+
+# In-memory cache for elevation lookups (elevation doesn't change)
+_elevation_cache: dict[tuple[float, float], float] = {}
+
+
+def get_elevation_m(latitude: float, longitude: float) -> float:
+    """Look up site elevation via the Open-Meteo Elevation API.
+
+    Results are cached in memory keyed on (lat, lon). Unlike ERA5 data,
+    this function raises on failure rather than returning a default — the
+    bias correction model requires an accurate elevation input.
+
+    Args:
+        latitude: Site latitude in degrees.
+        longitude: Site longitude in degrees.
+
+    Returns:
+        Elevation in meters above sea level.
+
+    Raises:
+        ClimateDataError: If the API call fails or returns unexpected data.
+    """
+    key = (latitude, longitude)
+    if key in _elevation_cache:
+        logger.debug("Elevation cache hit for (%.4f, %.4f)", latitude, longitude)
+        return _elevation_cache[key]
+
+    url = (
+        f"{OPEN_METEO_ELEVATION_URL}"
+        f"?latitude={latitude}&longitude={longitude}"
+    )
+
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+
+        if "elevation" not in data or not data["elevation"]:
+            raise ValueError(f"Unexpected response: {data}")
+
+        elevation = float(data["elevation"][0])
+        _elevation_cache[key] = elevation
+        logger.debug(
+            "Elevation lookup: (%.4f, %.4f) = %.0f m",
+            latitude, longitude, elevation,
+        )
+        return elevation
+
+    except Exception as exc:
+        from src.utils.exceptions import ClimateDataError
+
+        raise ClimateDataError(
+            f"Elevation lookup failed for ({latitude}, {longitude}). "
+            f"Please supply elevation manually or check network connectivity.",
+            context={
+                "location": (latitude, longitude),
+                "url": url,
+                "error": str(exc),
+            },
+        ) from exc
 
 
 def fetch_era5_land_data(
