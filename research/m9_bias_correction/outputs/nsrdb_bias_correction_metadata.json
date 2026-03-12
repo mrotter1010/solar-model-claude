@@ -1,0 +1,52 @@
+{
+  "model_version": "1.0.0",
+  "ghi_model_type": "GradientBoostingRegressor",
+  "dni_model_type": "RandomForestRegressor",
+  "features": [
+    "latitude",
+    "longitude",
+    "elevation_m",
+    "month",
+    "nsrdb_ghi_or_dni"
+  ],
+  "n_training_stations": 20,
+  "n_training_rows_ghi": 1350,
+  "n_training_rows_dni": 1343,
+  "training_stations": [
+    "BMS",
+    "UAT",
+    "ULL",
+    "UNLV",
+    "UOSMRL",
+    "UTPASRL",
+    "abq",
+    "bis",
+    "bon",
+    "dra",
+    "fpk",
+    "gwn",
+    "hnx",
+    "msn",
+    "psu",
+    "sea",
+    "slc",
+    "ste",
+    "sxf",
+    "tbl"
+  ],
+  "training_networks": [
+    "SURFRAD",
+    "SOLRAD",
+    "MIDC"
+  ],
+  "training_years": "2018-2023",
+  "cv_rmse_ghi": 0.096,
+  "cv_rmse_dni": 0.0979,
+  "cv_r2_ghi": 0.1724,
+  "cv_r2_dni": 0.0214,
+  "pct_improvement_ghi": 39.4,
+  "pct_improvement_dni": 36.6,
+  "date_trained": "2026-03-11",
+  "min_correction_threshold": 0.03,
+  "notes": "NSRDB GOES Aggregated v4.0.0 bias correction. GHI uses Gradient Boosting, DNI uses Random Forest. Trained on SURFRAD + SOLRAD + MIDC ground stations. Conditional application recommended: skip correction when predicted factor is between 0.97 and 1.03."
+}

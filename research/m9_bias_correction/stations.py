@@ -1,7 +1,8 @@
 """Ground station registry for NSRDB bias correction.
 
-SURFRAD (7 stations) and SOLRAD (7 active stations) networks providing
-research-grade GHI/DNI measurements for comparison against NSRDB satellite data.
+SURFRAD (7 stations), SOLRAD (7 active stations), and MIDC (6 stations)
+networks providing research-grade GHI/DNI measurements for comparison
+against NSRDB satellite data.
 """
 
 from typing import TypedDict
@@ -147,5 +148,60 @@ STATIONS: list[StationRecord] = [
         "longitude": -77.487,
         "state": "VA",
         "elevation_m": 85.0,
+    },
+    # --- MIDC network (6 stations) ---
+    {
+        "name": "NREL SRRL",
+        "network": "MIDC",
+        "station_id": "BMS",
+        "latitude": 39.74,
+        "longitude": -105.18,
+        "state": "CO",
+        "elevation_m": 1829.0,
+    },
+    {
+        "name": "Univ of Arizona",
+        "network": "MIDC",
+        "station_id": "UAT",
+        "latitude": 32.23,
+        "longitude": -110.95,
+        "state": "AZ",
+        "elevation_m": 786.0,
+    },
+    {
+        "name": "Univ of Oregon",
+        "network": "MIDC",
+        "station_id": "UOSMRL",
+        "latitude": 44.05,
+        "longitude": -123.07,
+        "state": "OR",
+        "elevation_m": 150.0,
+    },
+    {
+        "name": "Univ of Nevada LV",
+        "network": "MIDC",
+        "station_id": "UNLV",
+        "latitude": 36.11,
+        "longitude": -115.14,
+        "state": "NV",
+        "elevation_m": 615.0,
+    },
+    {
+        "name": "Univ of Louisiana",
+        "network": "MIDC",
+        "station_id": "ULL",
+        "latitude": 30.21,
+        "longitude": -92.02,
+        "state": "LA",
+        "elevation_m": 12.0,
+    },
+    {
+        "name": "UT Rio Grande Valley",
+        "network": "MIDC",
+        "station_id": "UTPASRL",
+        "latitude": 26.31,
+        "longitude": -98.17,
+        "state": "TX",
+        "elevation_m": 30.0,
     },
 ]
