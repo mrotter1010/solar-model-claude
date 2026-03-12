@@ -42,6 +42,7 @@ COLUMN_MAP: dict[str, str] = {
     "LID(%)": "lid_percent",
     "Report": "report",
     "Resource File Path": "resource_file_path",
+    "Ground Truth Data File": "ground_truth_data_file",
 }
 
 

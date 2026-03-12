@@ -138,6 +138,14 @@ def apply_bias_correction(
     """
     df = weather_df.copy()
 
+    # TODO: When ground_truth_data_file is provided for a site, compute
+    # site-specific correction factors from the ground truth data instead
+    # of using the regional model predictions below. The ground truth file
+    # contains (year, month, ghi_kwh_m2_day, dni_kwh_m2_day) and the
+    # correction factor for each month would be:
+    #   cf = ground_truth_value / nsrdb_value
+    # This overrides predict_correction_factors() on a per-month basis.
+
     monthly_ghi_factors: dict[int, float] = {}
     monthly_dni_factors: dict[int, float] = {}
 

@@ -3,7 +3,13 @@
 import os
 from pathlib import Path
 
+import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from src.utils.exceptions import ConfigValidationError
+from src.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class SiteConfig(BaseModel):
@@ -59,6 +65,9 @@ class SiteConfig(BaseModel):
     # Reporting
     report: bool = False
 
+    # Ground truth irradiance data (optional, for site-specific bias correction)
+    ground_truth_data_file: Path | None = None
+
     # Losses (all percentages 0-100)
     shading_percent: float = Field(ge=0, le=100)
     dc_wiring_loss_percent: float = Field(ge=0, le=100)
@@ -101,6 +110,27 @@ class SiteConfig(BaseModel):
         if isinstance(v, str):
             return v.strip().upper() in ("TRUE", "YES", "1")
         return bool(v)
+
+    @field_validator("ground_truth_data_file", mode="before")
+    @classmethod
+    def validate_ground_truth_data_file(cls, v: object) -> Path | None:
+        """Validate ground truth data file path from CSV input.
+
+        Handles None (empty cell), empty string. If a path is provided,
+        validates that the file exists and has a .csv extension.
+        """
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        path = Path(v) if not isinstance(v, Path) else v
+        if not path.exists():
+            raise ValueError(f"Ground truth data file not found: {path}")
+        if not path.is_file():
+            raise ValueError(f"Ground truth data file path is not a file: {path}")
+        if path.suffix.lower() != ".csv":
+            raise ValueError(
+                f"Ground truth data file must be a .csv file, got: {path.suffix}"
+            )
+        return path
 
     @field_validator("racking")
     @classmethod
@@ -160,3 +190,47 @@ class SiteConfig(BaseModel):
     def location(self) -> tuple[float, float]:
         """Return (latitude, longitude) tuple."""
         return (self.latitude, self.longitude)
+
+
+# Required columns in ground truth data files
+_GROUND_TRUTH_REQUIRED_COLUMNS = {"year", "month", "ghi_kwh_m2_day", "dni_kwh_m2_day"}
+
+
+def validate_ground_truth_file_contents(path: Path) -> pd.DataFrame:
+    """Validate that a ground truth data file has the required columns.
+
+    Args:
+        path: Path to the ground truth CSV file.
+
+    Returns:
+        The validated DataFrame.
+
+    Raises:
+        ConfigValidationError: If the file cannot be read or is missing
+            required columns.
+    """
+    try:
+        df = pd.read_csv(path)
+    except Exception as exc:
+        raise ConfigValidationError(
+            f"Failed to read ground truth data file: {path}",
+            context={"path": str(path), "error": str(exc)},
+        )
+
+    actual_columns = {c.strip().lower() for c in df.columns}
+    missing = _GROUND_TRUTH_REQUIRED_COLUMNS - actual_columns
+    if missing:
+        raise ConfigValidationError(
+            f"Ground truth data file is missing required columns: {sorted(missing)}. "
+            f"Expected columns: {sorted(_GROUND_TRUTH_REQUIRED_COLUMNS)}. "
+            f"Found columns: {sorted(df.columns.tolist())}",
+            context={
+                "path": str(path),
+                "missing_columns": sorted(missing),
+                "found_columns": sorted(df.columns.tolist()),
+            },
+        )
+
+    # Normalize column names to lowercase
+    df.columns = df.columns.str.strip().str.lower()
+    return df

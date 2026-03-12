@@ -394,6 +394,30 @@ def generate_narrative(
         f"{climate_note}"
     )
 
+    # --- bias correction methodology note (appended to solar_resource) ---
+    data_source = site_summary.get("data_source", "nsrdb")
+    bias_applied = loss_data.get("bias_correction_applied")
+
+    if data_source == "nsrdb" and bias_applied:
+        mean_ghi_cf = loss_data.get("mean_ghi_correction_factor", 1.0)
+        mean_dni_cf = loss_data.get("mean_dni_correction_factor", 1.0)
+        bias_version = loss_data.get("bias_correction_model_version", "unknown")
+        solar_resource += (
+            f"\n\nNSRDB Bias Correction: A regional bias correction model was "
+            f"applied to the NSRDB irradiance data prior to simulation. The "
+            f"model corrects for known systematic overestimation in "
+            f"satellite-derived GHI and DNI by applying monthly correction "
+            f"factors derived from ground station measurements across 20 CONUS "
+            f"stations (SURFRAD, SOLRAD, and MIDC networks, 2018-2023). Mean "
+            f"correction factors applied: GHI={mean_ghi_cf - 1:.1%}, "
+            f"DNI={mean_dni_cf - 1:.1%}. Model version: {bias_version}."
+        )
+    elif data_source == "solcast":
+        solar_resource += (
+            "\n\nResource Data: Solcast TMY P50 data used. No additional bias "
+            "correction applied."
+        )
+
     # --- production_summary ---
     production_summary = (
         f"The system is projected to produce "

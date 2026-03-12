@@ -410,9 +410,20 @@ class SolarModelingPipeline:
             )
             if ts_path is not None:
                 timeseries_files.append(ts_path)
-            # Merge bias correction metadata into summary (if applied)
+            # Merge bias correction metadata into summary and loss_data
             if result.site_name in bias_correction_lookup:
-                summary.update(bias_correction_lookup[result.site_name])
+                bias_meta = bias_correction_lookup[result.site_name]
+                summary.update(bias_meta)
+                # Inject into loss_data so the PDF report narrative
+                # can include bias correction methodology text
+                if result.loss_data is not None:
+                    for key in (
+                        "bias_correction_applied",
+                        "bias_correction_model_version",
+                        "mean_ghi_correction_factor",
+                        "mean_dni_correction_factor",
+                    ):
+                        result.loss_data[key] = bias_meta[key]
 
             if correction_metadata:
                 summary.update(correction_metadata)
