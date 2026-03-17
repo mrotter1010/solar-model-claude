@@ -19,7 +19,7 @@ from src.models.subhourly_correction import (
     predict_correction,
 )
 
-METADATA_PATH = Path("src/models/artifacts/subhourly_correction_v1_metadata.json")
+METADATA_PATH = Path("src/models/artifacts/subhourly_correction_v2_metadata.json")
 VALIDATION_DIR = Path("outputs/test_results/wp7_validation")
 
 
@@ -364,8 +364,12 @@ class TestLowDCAC:
             weather_features=CLOUDY_WEATHER,
         )
 
-        # Even cloudy sites at DC/AC 1.10 shouldn't have significant correction
-        assert correction < 0.15, (
+        # Even cloudy sites at DC/AC 1.10 should have small correction
+        # v2 (1-min ground data) predicts higher corrections than v1
+        assert correction > 0.2, (
+            f"DC/AC 1.10 cloudy correction {correction:.4f}% unexpectedly low"
+        )
+        assert correction < 1.0, (
             f"DC/AC 1.10 cloudy correction {correction:.4f}% unexpectedly high"
         )
 

@@ -4,20 +4,10 @@ Loads a trained Gradient Boosting model to predict a loss-only correction for
 irradiance variability effects that hourly resolution misses (e.g., inverter
 clipping during brief high-irradiance periods).
 
-The raw model can predict both positive (hourly overestimates) and negative
-(hourly underestimates) corrections. However, per industry practice, the
-returned correction is clamped to >= 0 (loss-only):
-
-    - The model was trained on 5-min NSRDB satellite data, which underrepresents
-      true irradiance peaks compared to 1-min ground-truth measurements. Negative
-      raw predictions (suggesting hourly underestimates) are artifacts of
-      satellite temporal smoothing, not real subhourly gains.
-    - DNV's Hourly Modeling Correction (HMC) standard treats subhourly resolution
-      effects as losses only.
-    - This clamp will be revisited when 1-min ground-truth training data is
-      available.
-
-Typical clamped corrections range from 0.0% to +0.6%.
+v2 model is trained on 1-min ground station data (19 CONUS stations) with the
+target clamped >= 0 at training time (loss-only). The prediction-time clamp is
+retained as an additional safety net. Typical corrections range from 0.0% to
+~3.3%, with a mean of ~0.78%.
 """
 
 import json
@@ -34,8 +24,8 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 _ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
-_MODEL_PATH = _ARTIFACT_DIR / "subhourly_correction_v1.joblib"
-_METADATA_PATH = _ARTIFACT_DIR / "subhourly_correction_v1_metadata.json"
+_MODEL_PATH = _ARTIFACT_DIR / "subhourly_correction_v2.joblib"
+_METADATA_PATH = _ARTIFACT_DIR / "subhourly_correction_v2_metadata.json"
 
 # Solar constant (W/m²) for extraterrestrial irradiance calculation
 _SOLAR_CONSTANT = 1361.0

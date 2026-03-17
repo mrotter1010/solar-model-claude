@@ -1,0 +1,88 @@
+{
+  "version": "2.0.0",
+  "model_type": "GradientBoostingRegressor",
+  "training_date": "2026-03-17",
+  "training_source": "1-min ground station data (19 CONUS stations)",
+  "reference_year": 2020,
+  "n_samples": 760,
+  "n_stations": 19,
+  "feature_list": [
+    "dcac_ratio",
+    "gcr",
+    "racking",
+    "latitude",
+    "longitude",
+    "cf_60min",
+    "annual_ghi",
+    "mean_kt",
+    "std_kt",
+    "ghi_cv",
+    "mean_dni",
+    "pct_clear_hours",
+    "climate_cloudy",
+    "climate_variable"
+  ],
+  "target_variable": "subhourly_loss_pct_clamped",
+  "target_description": "Clamped subhourly clipping loss percentage (>= 0, loss-only). Positive = hourly overestimates production due to missing subhourly irradiance variability.",
+  "clamping": "loss_only_gte_0",
+  "hyperparameters": {
+    "n_estimators": 200,
+    "max_depth": 5,
+    "learning_rate": 0.1,
+    "min_samples_leaf": 5,
+    "random_state": 42
+  },
+  "cv_metrics": {
+    "r2_global": 0.8740094076670858,
+    "r2_mean_fold": 0.5184454553999245,
+    "rmse": 0.2877526113563139,
+    "mae": 0.19729620677296614,
+    "bias": -0.009620236805073068
+  },
+  "correction_range": {
+    "min": 0.0,
+    "max": 3.2850697525998083,
+    "mean": 0.7791005596001409,
+    "std": 0.8106814109233955
+  },
+  "feature_importances": {
+    "dcac_ratio": 0.4706,
+    "pct_clear_hours": 0.1613,
+    "mean_dni": 0.1358,
+    "annual_ghi": 0.0836,
+    "mean_kt": 0.0553,
+    "latitude": 0.0308,
+    "cf_60min": 0.0254,
+    "longitude": 0.0155,
+    "ghi_cv": 0.0086,
+    "racking": 0.0074,
+    "std_kt": 0.0035,
+    "gcr": 0.0019,
+    "climate_variable": 0.0001,
+    "climate_cloudy": 0.0001
+  },
+  "feature_sources": {
+    "dcac_ratio": "from input CSV",
+    "gcr": "from input CSV",
+    "racking": "from input CSV (binary: 1=tracker, 0=fixed)",
+    "latitude": "from input CSV or site metadata",
+    "longitude": "from input CSV or site metadata",
+    "cf_60min": "from hourly PySAM simulation capacity factor",
+    "annual_ghi": "computed from hourly weather file",
+    "mean_kt": "computed from hourly weather file",
+    "std_kt": "computed from hourly weather file",
+    "ghi_cv": "computed from hourly weather file",
+    "mean_dni": "computed from hourly weather file",
+    "pct_clear_hours": "computed from hourly weather file",
+    "climate_cloudy": "one-hot from climate classification (pct_clear_hours < 30)",
+    "climate_variable": "one-hot from climate classification (30 <= pct_clear_hours < 45)"
+  },
+  "comparison_to_v1": {
+    "v1_mean_correction": 0.3,
+    "v2_mean_correction": 0.7791,
+    "v1_training_data": "NSRDB 5-min satellite (45 sites, 3240 samples)",
+    "v2_training_data": "Ground station 1-min (19 sites, 760 samples)",
+    "improvement_note": "v2 trained on real 1-min ground-truth irradiance captures higher clipping losses than v1's satellite-smoothed 5-min data. Mean correction increased from ~0.3% to 0.78%."
+  },
+  "notes": "Trained on 1-min ground station vs 60-min paired PySAM simulations. Target is clamped >= 0 (loss-only) at training time. Negative raw deltas (29% of pairs) occur at low DC/AC ratios and clear-sky sites where subhourly variability slightly increases net production."
+}
