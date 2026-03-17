@@ -366,6 +366,9 @@ class TestLowDCAC:
 
         # Even cloudy sites at DC/AC 1.10 should have small correction
         # v2 (1-min ground data) predicts higher corrections than v1
+        assert correction > 0.2, (
+            f"DC/AC 1.10 cloudy correction {correction:.4f}% unexpectedly low"
+        )
         assert correction < 1.0, (
             f"DC/AC 1.10 cloudy correction {correction:.4f}% unexpectedly high"
         )

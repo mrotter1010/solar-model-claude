@@ -250,6 +250,9 @@ class TestPredictCorrection:
         )
 
         assert correction >= 0.0, "Clamped correction must be non-negative"
+        assert correction > 0.5, (
+            f"Seattle fixed correction {correction:.4f}% unexpectedly low"
+        )
         assert correction < 2.0, (
             f"Seattle fixed correction {correction:.4f}% unexpectedly high"
         )
@@ -286,8 +289,11 @@ class TestPredictCorrection:
             f"got {correction:.4f}%"
         )
         # v2 predicts higher corrections than v1's training value of +0.61%
-        assert 0.2 < correction < 2.5, (
-            f"Portland correction {correction:.4f}% outside expected range"
+        assert correction > 0.8, (
+            f"Portland correction {correction:.4f}% unexpectedly low"
+        )
+        assert correction < 2.5, (
+            f"Portland correction {correction:.4f}% unexpectedly high"
         )
 
     def test_higher_dcac_has_larger_correction(self) -> None:
@@ -309,7 +315,9 @@ class TestPredictCorrection:
         )
 
         assert correction_120 >= 0.0
-        assert correction_160 >= 0.0
+        assert correction_160 > 0.05, (
+            f"Phoenix DC/AC 1.60 correction {correction_160:.4f}% unexpectedly low"
+        )
         assert correction_160 >= correction_120, (
             f"DC/AC 1.60 ({correction_160:.4f}%) should be >= "
             f"DC/AC 1.20 ({correction_120:.4f}%)"

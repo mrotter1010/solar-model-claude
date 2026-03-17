@@ -277,9 +277,8 @@ class TestWP7SmokeTests:
         sea_fixed_corr = sea_fixed.get("subhourly_correction_pct", 0.0)
         assert sea_fixed_corr >= 0.0, "Clamped correction must be >= 0"
         # Cloudy fixed + high DC/AC: expect positive correction
-        assert sea_fixed_corr > 0.0, (
-            f"Seattle fixed DC/AC 1.55 should have positive correction, "
-            f"got {sea_fixed_corr}%"
+        assert sea_fixed_corr > 0.7, (
+            f"Seattle fixed DC/AC 1.55 correction {sea_fixed_corr}% unexpectedly low"
         )
         assert sea_fixed_corr < 2.5, (
             f"Seattle correction {sea_fixed_corr}% unexpectedly high"
