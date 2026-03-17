@@ -45,7 +45,7 @@ PHOENIX_TRACKER_160 = {
 
 # Metadata artifact path
 METADATA_PATH = Path(
-    "src/models/artifacts/subhourly_correction_v1_metadata.json"
+    "src/models/artifacts/subhourly_correction_v2_metadata.json"
 )
 
 
@@ -208,8 +208,13 @@ class TestPredictCorrection:
             f"Expected 0.0 after clamping, got {correction:.4f}%"
         )
 
-    def test_phoenix_tracker_dcac_160_clamped_to_zero(self) -> None:
-        """Phoenix tracker DC/AC 1.60: raw model is negative, clamped to 0.0."""
+    def test_phoenix_tracker_dcac_160_small_positive(self) -> None:
+        """Phoenix tracker DC/AC 1.60: v2 predicts small positive correction.
+
+        v1 predicted negative (clamped to 0.0) for this desert config. v2,
+        trained on 1-min ground data, correctly identifies a small subhourly
+        clipping loss even at high-irradiance desert sites with high DC/AC.
+        """
         config = PHOENIX_TRACKER_160
         correction = predict_correction(
             dcac_ratio=config["dcac_ratio"],
@@ -221,15 +226,18 @@ class TestPredictCorrection:
             weather_features=self._phoenix_weather_features(),
         )
 
-        assert correction == 0.0, (
-            f"Expected 0.0 after clamping, got {correction:.4f}%"
+        assert correction >= 0.0, "Correction must be non-negative"
+        assert correction < 0.5, (
+            f"Phoenix tracker DC/AC 1.60 correction {correction:.4f}% "
+            f"unexpectedly high"
         )
 
     def test_seattle_fixed_dcac_140(self) -> None:
-        """Seattle fixed DC/AC 1.40 should predict ~+0.1% correction.
+        """Seattle fixed DC/AC 1.40 should predict positive correction.
 
-        Cloudy fixed-tilt: small positive correction (hourly overestimates).
-        Positive raw prediction passes through the clamp unchanged.
+        Cloudy fixed-tilt: positive correction (hourly overestimates).
+        v2 trained on ground-truth 1-min data predicts higher corrections
+        than v1 (~1.2% vs ~0.1%).
         """
         correction = predict_correction(
             dcac_ratio=1.40,
@@ -242,7 +250,7 @@ class TestPredictCorrection:
         )
 
         assert correction >= 0.0, "Clamped correction must be non-negative"
-        assert correction < 0.4, (
+        assert correction < 2.0, (
             f"Seattle fixed correction {correction:.4f}% unexpectedly high"
         )
 
@@ -277,16 +285,15 @@ class TestPredictCorrection:
             f"Portland fixed DC/AC 1.60 should have positive correction, "
             f"got {correction:.4f}%"
         )
-        # Should be near the training value of +0.61%
-        assert 0.2 < correction < 1.0, (
+        # v2 predicts higher corrections than v1's training value of +0.61%
+        assert 0.2 < correction < 2.5, (
             f"Portland correction {correction:.4f}% outside expected range"
         )
 
-    def test_higher_dcac_both_clamped_to_zero(self) -> None:
-        """Both Phoenix tracker configs clamp to 0.0, so they're equal.
+    def test_higher_dcac_has_larger_correction(self) -> None:
+        """Higher DC/AC ratio should produce larger or equal correction.
 
-        Both raw predictions are negative (desert tracker underestimates),
-        so after clamping both are 0.0.
+        DC/AC ratio is the dominant predictor of subhourly clipping loss.
         """
         weather = self._phoenix_weather_features()
 
@@ -301,8 +308,12 @@ class TestPredictCorrection:
             weather_features=weather,
         )
 
-        assert correction_120 == 0.0
-        assert correction_160 == 0.0
+        assert correction_120 >= 0.0
+        assert correction_160 >= 0.0
+        assert correction_160 >= correction_120, (
+            f"DC/AC 1.60 ({correction_160:.4f}%) should be >= "
+            f"DC/AC 1.20 ({correction_120:.4f}%)"
+        )
 
     def test_correction_non_negative(self) -> None:
         """All predictions should be >= 0.0 after clamping."""
@@ -319,7 +330,7 @@ class TestPredictCorrection:
         )
 
     def test_correction_within_clamped_range(self) -> None:
-        """Clamped predictions should be in [0.0, ~0.7%]."""
+        """Clamped predictions should be in [0.0, ~3.5%]."""
         weather = self._phoenix_weather_features()
 
         correction = predict_correction(
@@ -328,8 +339,8 @@ class TestPredictCorrection:
             weather_features=weather,
         )
 
-        assert 0.0 <= correction < 1.0, (
-            f"Correction {correction:.4f}% outside clamped range [0, 1.0]"
+        assert 0.0 <= correction < 4.0, (
+            f"Correction {correction:.4f}% outside clamped range [0, 4.0]"
         )
 
     def test_prediction_output_saved(self, test_results_dir: Path) -> None:
@@ -401,7 +412,7 @@ class TestModelLoading:
 
         required_keys = {
             "model_type", "training_date", "feature_list",
-            "target_variable", "version", "loso_cv_metrics",
+            "target_variable", "version", "cv_metrics",
         }
         assert required_keys.issubset(set(metadata.keys()))
 

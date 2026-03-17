@@ -281,7 +281,7 @@ class TestWP7SmokeTests:
             f"Seattle fixed DC/AC 1.55 should have positive correction, "
             f"got {sea_fixed_corr}%"
         )
-        assert sea_fixed_corr < 1.0, (
+        assert sea_fixed_corr < 2.5, (
             f"Seattle correction {sea_fixed_corr}% unexpectedly high"
         )
         assert sea_fixed["raw_annual_energy_mwh"] > sea_fixed["annual_energy_mwh"], (

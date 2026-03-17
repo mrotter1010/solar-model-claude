@@ -553,7 +553,7 @@ class TestSubhourlyInNarrative:
 
         assert "subhourly resolution correction of 0.30%" in result["loss_summary"]
         assert "model version: v1" in result["loss_summary"]
-        assert "45 CONUS sites" in result["loss_summary"]
+        assert "19 CONUS ground stations" in result["loss_summary"]
 
     def test_zero_correction_note(self) -> None:
         """Narrative includes 'no additional clipping' note for zero correction."""

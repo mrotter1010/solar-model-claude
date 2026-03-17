@@ -474,9 +474,9 @@ def generate_narrative(
                 f"\nA subhourly resolution correction of {subhourly_pct:.2f}% "
                 f"was applied to account for inverter clipping losses not "
                 f"captured by hourly-resolution modeling. This correction is "
-                f"based on a machine learning model trained on paired 5-minute "
-                f"and 60-minute PySAM simulations across 45 CONUS sites "
-                f"(model version: {model_version})."
+                f"based on a machine learning model trained on paired 1-minute "
+                f"and 60-minute PySAM simulations across 19 CONUS ground "
+                f"stations (model version: {model_version})."
             )
         else:
             loss_summary += (
