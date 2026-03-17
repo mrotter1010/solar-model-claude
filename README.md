@@ -368,7 +368,7 @@ row = recreate_run_input("your-run-uuid-here")
 
 | # | Name | Description |
 |---|------|-------------|
-| M10 | Ground Truth Bias Correction | Site-specific bias correction using customer-provided ground truth irradiance data |
-| M12 | Batch Processing & Reporting | Multi-site batch runs with consolidated reporting |
-| M13 | BESS Integration | Battery storage dispatch and optimization modeling |
-| M14+ | API & Dashboard | REST API for programmatic access, web dashboard for results visualization |
+| M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
+| M12 | Benchmarking | Parity validation at 5-7 reference sites vs SolarGIS/SolarAnywhere/PVWatts/SAM + model-vs-measured ground truth using NREL PVDAQ |
+| M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
+| M14+ | BESS Dispatch & Optimization | Battery storage dispatch modeling for demand charge management and TOU arbitrage |
