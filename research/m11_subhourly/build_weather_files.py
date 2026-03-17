@@ -32,6 +32,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 M9_DIR = SCRIPT_DIR.parent / "m9_bias_correction"
 SURFRAD_RAW = M9_DIR / "cache" / "ground_truth" / "raw"
+SOLRAD_RAW = M9_DIR / "cache" / "ground_truth" / "solrad_raw"
+MIDC_RAW = M9_DIR / "cache" / "ground_truth" / "midc_raw"
 OUTPUT_DIR = SCRIPT_DIR / "weather_files"
 
 # Add project root for src.* imports, M9 dir for station registry
@@ -110,6 +112,79 @@ def parse_surfrad_year(station_id: str, year: int) -> pd.DataFrame:
         "  Parsed %d records from %d files (%d read errors)",
         len(df), len(dat_files), read_errors,
     )
+    return df
+
+
+# ---------------------------------------------------------------------------
+# SOLRAD parsing (from M9-cached .csv.gz files)
+# ---------------------------------------------------------------------------
+def parse_solrad_year(station_id: str, year: int) -> pd.DataFrame:
+    """Parse cached SOLRAD 1-min data from M9's gzipped CSV.
+
+    M9 downloaded SOLRAD data via pvlib.iotools.get_solrad() and cached
+    as {station_id}_{year}.csv.gz. The files have 'Unnamed: 0' as the
+    UTC datetime index and columns including ghi, dni, dhi.
+
+    Args:
+        station_id: SOLRAD station code (e.g., "abq").
+        year: Calendar year.
+
+    Returns:
+        DataFrame with columns [ghi, dni, dhi] and UTC DatetimeIndex.
+
+    Raises:
+        FileNotFoundError: If cached file is missing.
+    """
+    filepath = SOLRAD_RAW / f"{station_id}_{year}.csv.gz"
+    if not filepath.exists():
+        raise FileNotFoundError(f"SOLRAD cache not found: {filepath}")
+
+    logger.info("Parsing SOLRAD cache: %s", filepath.name)
+    df = pd.read_csv(filepath)
+
+    # Parse UTC datetime index from 'Unnamed: 0' column
+    df.index = pd.to_datetime(df["Unnamed: 0"], utc=True)
+    df = df[["ghi", "dni", "dhi"]].sort_index()
+    df = df[~df.index.duplicated(keep="first")]
+
+    logger.info("  Parsed %d records for %s %d", len(df), station_id, year)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# MIDC parsing (from M9-cached .csv.gz files)
+# ---------------------------------------------------------------------------
+def parse_midc_year(station_id: str, year: int) -> pd.DataFrame:
+    """Parse cached MIDC 1-min data from M9's gzipped CSV.
+
+    M9 downloaded MIDC data via pvlib.iotools.read_midc_raw_data_from_nrel()
+    with station-specific variable maps, and cached as {STATION_ID}_{year}.csv.gz.
+    The files have 'Unnamed: 0.1' as the local datetime index (with tz info)
+    and columns ghi, dni, dhi (already mapped from instrument-specific names).
+
+    Args:
+        station_id: MIDC station code (e.g., "BMS", "UAT").
+        year: Calendar year.
+
+    Returns:
+        DataFrame with columns [ghi, dni, dhi] and UTC DatetimeIndex.
+
+    Raises:
+        FileNotFoundError: If cached file is missing.
+    """
+    filepath = MIDC_RAW / f"{station_id}_{year}.csv.gz"
+    if not filepath.exists():
+        raise FileNotFoundError(f"MIDC cache not found: {filepath}")
+
+    logger.info("Parsing MIDC cache: %s", filepath.name)
+    df = pd.read_csv(filepath)
+
+    # Parse local datetime index from 'Unnamed: 0.1' column, convert to UTC
+    df.index = pd.to_datetime(df["Unnamed: 0.1"], utc=True)
+    df = df[["ghi", "dni", "dhi"]].sort_index()
+    df = df[~df.index.duplicated(keep="first")]
+
+    logger.info("  Parsed %d records for %s %d", len(df), station_id, year)
     return df
 
 
@@ -246,8 +321,10 @@ def build_station_irradiance(
 ) -> tuple[pd.DataFrame, dict, Path]:
     """Parse and QC one station-year of 1-min irradiance data.
 
+    Dispatches to the correct parser based on the station's network.
+
     Args:
-        station_id: Station code (e.g., "bon").
+        station_id: Station code (e.g., "bon", "abq", "BMS").
         year: Calendar year.
 
     Returns:
@@ -262,14 +339,22 @@ def build_station_irradiance(
 
     station_name = station["name"].replace(" ", "")
     state = station["state"]
+    network = station["network"]
 
     logger.info(
-        "Building irradiance file for %s (%s), %s %d",
-        station["name"], station_id, state, year,
+        "Building irradiance file for %s (%s, %s), %s %d",
+        station["name"], station_id, network, state, year,
     )
 
-    # Parse raw data
-    df_raw = parse_surfrad_year(station_id, year)
+    # Dispatch to correct parser based on network
+    if network == "SURFRAD":
+        df_raw = parse_surfrad_year(station_id, year)
+    elif network == "SOLRAD":
+        df_raw = parse_solrad_year(station_id, year)
+    elif network == "MIDC":
+        df_raw = parse_midc_year(station_id, year)
+    else:
+        raise ValueError(f"Unknown network '{network}' for station {station_id}")
 
     # Apply QC
     df_qc, summary = apply_irradiance_qc(df_raw, year)
@@ -590,76 +675,92 @@ def run_pysam_poc(
 
 
 # ---------------------------------------------------------------------------
-# Main — Prompt 2b: NSRDB merge + SAM files + PySAM POC
+# Build all stations — Prompt 3: scale to 20 stations
 # ---------------------------------------------------------------------------
-def main() -> None:
-    """Build complete SAM weather files and run PySAM proof of concept."""
-    from utils import get_timezone_offset  # noqa: E402
+NSRDB_DELAY_SECONDS = 2  # Rate limit between NSRDB API calls
 
-    station_id = "bon"
-    year = 2020
-    station = next(s for s in STATIONS if s["station_id"] == station_id)
+
+def _station_file_prefix(station: dict) -> str:
+    """Build consistent file name prefix from station metadata."""
+    return f"{station['name'].replace(' ', '')}_{station['state']}"
+
+
+def build_one_station(
+    station: dict,
+    year: int,
+    tz_offset: int,
+) -> dict:
+    """Build 1-min and 60-min SAM weather files for one station.
+
+    Args:
+        station: Station dict from STATIONS registry.
+        year: Calendar year.
+        tz_offset: Standard UTC offset for station location.
+
+    Returns:
+        Summary dict with station results and file paths.
+    """
+    station_id = station["station_id"]
     lat, lon = station["latitude"], station["longitude"]
     elevation = station["elevation_m"]
-    tz_offset = get_timezone_offset(lat, lon)
+    prefix = _station_file_prefix(station)
+    expected = _minutes_in_year(year)
 
-    logger.info(
-        "Station: %s (%s), lat=%.2f, lon=%.2f, elev=%.0f, tz=UTC%+d",
-        station["name"], station_id, lat, lon, elevation, tz_offset,
+    result = {
+        "station_name": station["name"],
+        "state": station["state"],
+        "network": station["network"],
+        "latitude": lat,
+        "longitude": lon,
+        "tz_offset": tz_offset,
+        "irradiance_rows": 0,
+        "irradiance_completeness_pct": 0.0,
+        "nsrdb_success": False,
+        "file_1min": "",
+        "file_60min": "",
+        "qc_notes": "",
+    }
+
+    # Step 1: Parse and QC irradiance
+    df_irr, qc_summary, _ = build_station_irradiance(station_id, year)
+    result["irradiance_rows"] = qc_summary["raw_records"]
+    result["irradiance_completeness_pct"] = round(
+        qc_summary["raw_records"] / qc_summary["expected_records"] * 100, 1,
     )
 
-    # -----------------------------------------------------------------------
-    # Step 1: Load QC'd irradiance from Prompt 2a (or rebuild if missing)
-    # -----------------------------------------------------------------------
-    irradiance_path = OUTPUT_DIR / "Bondville_IL_2020_irradiance_1min.csv"
-    if irradiance_path.exists():
-        logger.info("Loading cached irradiance from %s", irradiance_path.name)
-        df_irr_csv = pd.read_csv(irradiance_path)
-        irr_index = pd.to_datetime(df_irr_csv["timestamp_utc"])
-        df_irr = pd.DataFrame(
-            {
-                "ghi": df_irr_csv["ghi"].values,
-                "dni": df_irr_csv["dni"].values,
-                "dhi": df_irr_csv["dhi"].values,
-            },
-            index=irr_index,
-        )
-    else:
-        logger.info("Irradiance file not found, rebuilding...")
-        df_irr, _, _ = build_station_irradiance(station_id, year)
+    # Build QC notes
+    notes = []
+    if qc_summary["missing_before_fill"] > expected * 0.05:
+        notes.append(f"high_NaN={qc_summary['missing_before_fill']}")
+    if qc_summary["capped_ghi"] > 0:
+        notes.append(f"GHI_capped={qc_summary['capped_ghi']}")
+    if qc_summary["capped_dni"] > 0:
+        notes.append(f"DNI_capped={qc_summary['capped_dni']}")
+    result["qc_notes"] = "; ".join(notes)
 
-    logger.info("Irradiance loaded: %d rows", len(df_irr))
-
-    # -----------------------------------------------------------------------
-    # Step 2: Fetch NSRDB hourly temp/wind/albedo
-    # -----------------------------------------------------------------------
+    # Step 2: Fetch NSRDB hourly
     nsrdb_metadata, df_nsrdb_hourly = fetch_nsrdb_hourly(lat, lon, year)
+    result["nsrdb_success"] = True
 
-    # -----------------------------------------------------------------------
     # Step 3: Interpolate NSRDB to 1-min
-    # -----------------------------------------------------------------------
     df_nsrdb_1min = interpolate_nsrdb_to_1min(df_nsrdb_hourly, year)
 
-    # Verify row counts match
-    expected = _minutes_in_year(year)
-    assert len(df_irr) == expected, (
-        f"Irradiance row count {len(df_irr)} != expected {expected}"
-    )
-    assert len(df_nsrdb_1min) == expected, (
-        f"NSRDB 1-min row count {len(df_nsrdb_1min)} != expected {expected}"
-    )
-    logger.info("Row counts match: irradiance=%d, NSRDB=%d", len(df_irr), len(df_nsrdb_1min))
+    # Verify row counts
+    if len(df_irr) != expected:
+        raise ValueError(
+            f"Irradiance row count {len(df_irr)} != expected {expected}"
+        )
+    if len(df_nsrdb_1min) != expected:
+        raise ValueError(
+            f"NSRDB 1-min row count {len(df_nsrdb_1min)} != expected {expected}"
+        )
 
-    # -----------------------------------------------------------------------
     # Step 4: Build 1-min SAM weather file
-    # -----------------------------------------------------------------------
-    # Combine irradiance + NSRDB weather on a tz-naive UTC index
     utc_index = pd.date_range(
         start=f"{year}-01-01 00:00:00",
         periods=expected,
         freq="min",
     )
-
     df_1min = pd.DataFrame(
         {
             "GHI": df_irr["ghi"].values,
@@ -672,80 +773,118 @@ def main() -> None:
         index=utc_index,
     )
 
-    sam_1min_path = OUTPUT_DIR / f"Bondville_IL_{year}_1min.csv"
+    sam_1min_path = OUTPUT_DIR / f"{prefix}_{year}_1min.csv"
     write_sam_csv(df_1min, lat, lon, elevation, sam_1min_path, nsrdb_metadata)
+    result["file_1min"] = str(sam_1min_path)
 
-    # -----------------------------------------------------------------------
     # Step 5: Build 60-min SAM weather file
-    # -----------------------------------------------------------------------
     df_60min = build_60min_from_1min(df_1min, year)
-    sam_60min_path = OUTPUT_DIR / f"Bondville_IL_{year}_60min.csv"
+    sam_60min_path = OUTPUT_DIR / f"{prefix}_{year}_60min.csv"
     write_sam_csv(df_60min, lat, lon, elevation, sam_60min_path, nsrdb_metadata)
+    result["file_60min"] = str(sam_60min_path)
+
+    return result
+
+
+def build_all_stations(year: int = 2020) -> None:
+    """Build 1-min and 60-min SAM weather files for all 20 stations.
+
+    Iterates the station registry, dispatches to the correct parser,
+    fetches NSRDB data with rate limiting, and produces a summary CSV.
+
+    Args:
+        year: Calendar year to process.
+    """
+    from utils import get_timezone_offset
+
+    total = len(STATIONS)
+    results: list[dict] = []
+    failed: list[tuple[str, str]] = []  # (station_name, error)
+
+    logger.info("=" * 70)
+    logger.info("Building SAM weather files for %d stations, year=%d", total, year)
+    logger.info("=" * 70)
+
+    for i, station in enumerate(STATIONS):
+        station_id = station["station_id"]
+        station_name = station["name"]
+        state = station["state"]
+        network = station["network"]
+        lat, lon = station["latitude"], station["longitude"]
+
+        # Rate limit NSRDB calls (skip delay before first station)
+        if i > 0:
+            logger.info("  (waiting %ds for NSRDB rate limit)", NSRDB_DELAY_SECONDS)
+            time.sleep(NSRDB_DELAY_SECONDS)
+
+        try:
+            tz_offset = get_timezone_offset(lat, lon)
+            result = build_one_station(station, year, tz_offset)
+            results.append(result)
+
+            # One-line status
+            print(
+                f"[{i+1}/{total}] {station_name}_{state} ({network}): "
+                f"{result['irradiance_rows']:,} irrad rows, "
+                f"completeness={result['irradiance_completeness_pct']:.1f}%, "
+                f"NSRDB=OK → 1min + 60min OK"
+            )
+
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            failed.append((f"{station_name} ({station_id})", error_msg))
+            logger.error(
+                "[%d/%d] FAILED %s_%s (%s): %s",
+                i + 1, total, station_name, state, network, error_msg,
+            )
+            print(
+                f"[{i+1}/{total}] {station_name}_{state} ({network}): "
+                f"FAILED — {error_msg}"
+            )
+
+            # Stop condition: more than 5 failures
+            if len(failed) > 5:
+                logger.error("More than 5 stations failed — stopping batch")
+                print("\nSTOPPING: More than 5 stations failed. Something systemic.")
+                break
 
     # -----------------------------------------------------------------------
-    # Step 6: Run PySAM proof of concept
-    # -----------------------------------------------------------------------
-    energy_1min, cf_1min, time_1min = run_pysam_poc(
-        sam_1min_path, "1min", lat, lon,
-    )
-    energy_60min, cf_60min, time_60min = run_pysam_poc(
-        sam_60min_path, "60min", lat, lon,
-    )
-
-    # Compute subhourly loss
-    subhourly_loss_pct = (energy_60min - energy_1min) / energy_60min * 100.0
-
-    # -----------------------------------------------------------------------
-    # Report
+    # Summary report
     # -----------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("M11 BONDVILLE IL 2020 — PROOF OF CONCEPT REPORT")
+    print(f"M11 WEATHER FILE BUILD SUMMARY — {year}")
     print("=" * 80)
+    print(f"Stations attempted: {len(results) + len(failed)}/{total}")
+    print(f"Successful: {len(results)}")
+    print(f"Failed: {len(failed)}")
+    print(f"Weather files created: {len(results) * 2} (expected {total * 2})")
 
-    print(f"\nStation: {station['name']} ({station_id})")
-    print(f"Location: {lat}, {lon}, elevation={elevation}m, TZ=UTC{tz_offset:+d}")
+    if failed:
+        print(f"\n--- Failed Stations ---")
+        for name, err in failed:
+            print(f"  {name}: {err}")
 
-    print(f"\n--- NSRDB Fetch ---")
-    print(f"Rows received: {len(df_nsrdb_hourly)} hourly")
-    print(f"Columns: Temperature, Wind Speed, Surface Albedo")
-    print(f"NSRDB header Time Zone: {nsrdb_metadata.get('Time Zone', '?')}")
-    print(f"NSRDB header Local TZ: {nsrdb_metadata.get('Local Time Zone', '?')}")
+    low_completeness = [
+        r for r in results if r["irradiance_completeness_pct"] < 90.0
+    ]
+    if low_completeness:
+        print(f"\n--- Stations Below 90% Completeness ---")
+        for r in low_completeness:
+            print(
+                f"  {r['station_name']} ({r['network']}): "
+                f"{r['irradiance_completeness_pct']:.1f}%"
+            )
 
-    print(f"\n--- Interpolation ---")
-    print(f"1-min NSRDB rows: {len(df_nsrdb_1min)} (matches irradiance: {len(df_irr)})")
+    # Save summary CSV
+    if results:
+        summary_path = SCRIPT_DIR / "weather_file_summary.csv"
+        summary_df = pd.DataFrame(results)
+        summary_df.to_csv(summary_path, index=False)
+        logger.info("Saved summary: %s", summary_path)
+        print(f"\nSummary saved to: {summary_path}")
 
-    print(f"\n--- 1-min SAM Weather File ---")
-    print(f"Path: {sam_1min_path}")
-    print(f"Data rows: {len(df_1min):,}")
-    print(f"First 5 rows:")
-    print(df_1min.head().to_string())
-
-    print(f"\n--- 60-min SAM Weather File ---")
-    print(f"Path: {sam_60min_path}")
-    print(f"Data rows: {len(df_60min):,}")
-    print(f"First 5 rows:")
-    print(df_60min.head().to_string())
-
-    print(f"\n--- PySAM Results ---")
-    print(f"Config: DC/AC=1.40, GCR=0.40, tracker, bifacial")
-    print(f"Module: SunPower SPR-310-WHT-U")
-    print(f"Inverter: Sungrow SG250HX-US [800V]")
-    print(f"AC=20MW, DC=28MW")
-    print(f"")
-    print(f"  1-min:  {energy_1min:>14,.0f} kWh  CF={cf_1min:.2f}%  ({time_1min:.1f}s)")
-    print(f"  60-min: {energy_60min:>14,.0f} kWh  CF={cf_60min:.2f}%  ({time_60min:.1f}s)")
-    print(f"")
-    print(f"  Subhourly clipping loss: {subhourly_loss_pct:.3f}%")
-    print(f"  (positive = hourly overestimates vs 1-min)")
-
-    print(f"\n--- Timing ---")
-    print(f"  1-min PySAM: {time_1min:.1f}s")
-    print(f"  60-min PySAM: {time_60min:.1f}s")
-    print(f"  Ratio: {time_1min/max(time_60min, 0.01):.1f}x")
-    est_total = time_1min * 1600
-    print(f"  Estimated 1,600 runs at 1-min: {est_total:.0f}s ({est_total/60:.0f} min)")
     print()
 
 
 if __name__ == "__main__":
-    main()
+    build_all_stations(2020)
