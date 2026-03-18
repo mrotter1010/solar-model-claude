@@ -135,7 +135,7 @@ class TestCacheHits:
 
         for site in sample_sites:
             lat, lon = site.latitude, site.longitude
-            cache_file = cache_dir / f"nsrdb_{lat}_{lon}_{today}.csv"
+            cache_file = cache_dir / f"nsrdb_{lat}_{lon}_tmy_{today}.csv"
             cache_file.write_text(SAMPLE_NSRDB_CSV)
 
         cache_manager = CacheManager(cache_dir=cache_dir)
@@ -160,7 +160,7 @@ class TestCacheHits:
 
         for site in sample_sites:
             lat, lon = site.latitude, site.longitude
-            cache_file = cache_dir / f"nsrdb_{lat}_{lon}_{old_date}.csv"
+            cache_file = cache_dir / f"nsrdb_{lat}_{lon}_tmy_{old_date}.csv"
             cache_file.write_text(SAMPLE_NSRDB_CSV)
 
         cache_manager = CacheManager(cache_dir=cache_dir)
@@ -229,7 +229,7 @@ class TestApiFailureHandling:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = cache_dir / f"nsrdb_33.46_-111.97_{today}.csv"
+        cache_file = cache_dir / f"nsrdb_33.46_-111.97_tmy_{today}.csv"
         cache_file.write_text(SAMPLE_NSRDB_CSV)
 
         cache_manager = CacheManager(cache_dir=cache_dir)
@@ -254,7 +254,7 @@ class TestNearestCacheFallback:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        nearby_file = cache_dir / f"nsrdb_33.46_-111.97_{today}.csv"
+        nearby_file = cache_dir / f"nsrdb_33.46_-111.97_tmy_{today}.csv"
         nearby_file.write_text(SAMPLE_NSRDB_CSV)
 
         cache_manager = CacheManager(cache_dir=cache_dir)
@@ -277,7 +277,7 @@ class TestNearestCacheFallback:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        far_file = cache_dir / f"nsrdb_32.22_-110.97_{today}.csv"
+        far_file = cache_dir / f"nsrdb_32.22_-110.97_tmy_{today}.csv"
         far_file.write_text(SAMPLE_NSRDB_CSV)
 
         cache_manager = CacheManager(cache_dir=cache_dir)
@@ -395,11 +395,11 @@ class TestMixedCacheScenario:
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
         # Fresh cache for Phoenix (33.45, -111.98)
-        phoenix_cache = cache_dir / f"nsrdb_33.45_-111.98_{today}.csv"
+        phoenix_cache = cache_dir / f"nsrdb_33.45_-111.98_tmy_{today}.csv"
         phoenix_cache.write_text(SAMPLE_NSRDB_CSV)
 
         # Stale cache for Tucson (32.22, -110.97) — 400 days old
-        tucson_cache = cache_dir / "nsrdb_32.22_-110.97_20240101.csv"
+        tucson_cache = cache_dir / "nsrdb_32.22_-110.97_tmy_20240101.csv"
         tucson_cache.write_text(SAMPLE_NSRDB_CSV)
 
         # No cache for Flagstaff (35.20, -111.65)
@@ -434,7 +434,7 @@ class TestApiFailureInFetchClimateData:
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
         # Create a nearby cache file for fallback
-        nearby_cache = cache_dir / f"nsrdb_33.46_-111.97_{today}.csv"
+        nearby_cache = cache_dir / f"nsrdb_33.46_-111.97_tmy_{today}.csv"
         nearby_cache.write_text(SAMPLE_NSRDB_CSV)
 
         mock_client = MagicMock(spec=NSRDBClient)

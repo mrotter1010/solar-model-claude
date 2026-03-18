@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from src.climate.nsrdb_client import NSRDB_PSM_URL, NSRDBClient, WEATHER_ATTRIBUTES
+from src.climate.nsrdb_client import NSRDB_PSM_URL, NSRDB_TMY_URL, NSRDBClient, WEATHER_ATTRIBUTES
 from src.utils.exceptions import ClimateDataError
 
 # Realistic NSRDB CSV response (2-row header + column names + data)
@@ -95,8 +95,8 @@ class TestFetchWeatherData:
         assert params["utc"] == "false"
 
     @patch("src.climate.nsrdb_client.requests.get")
-    def test_correct_url(self, mock_get: MagicMock) -> None:
-        """Request is made to the PSM v3.2.2 endpoint."""
+    def test_correct_url_tmy_default(self, mock_get: MagicMock) -> None:
+        """Default year='tmy' uses the NSRDB TMY endpoint."""
         mock_response = MagicMock()
         mock_response.text = SAMPLE_NSRDB_CSV
         mock_response.raise_for_status = MagicMock()
@@ -106,7 +106,25 @@ class TestFetchWeatherData:
         client.fetch_weather_data(lat=33.45, lon=-111.98)
 
         call_args = mock_get.call_args
+        assert call_args[0][0] == NSRDB_TMY_URL
+        params = call_args.kwargs.get("params") or call_args[1].get("params")
+        assert params["names"] == "tmy"
+
+    @patch("src.climate.nsrdb_client.requests.get")
+    def test_correct_url_single_year(self, mock_get: MagicMock) -> None:
+        """Explicit year=2024 uses the NSRDB Aggregated endpoint."""
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_NSRDB_CSV
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client = NSRDBClient()
+        client.fetch_weather_data(lat=33.45, lon=-111.98, year=2024)
+
+        call_args = mock_get.call_args
         assert call_args[0][0] == NSRDB_PSM_URL
+        params = call_args.kwargs.get("params") or call_args[1].get("params")
+        assert params["names"] == "2024"
 
     @patch("src.climate.nsrdb_client.requests.get")
     def test_http_error_raises_climate_data_error(

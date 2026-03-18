@@ -8,6 +8,7 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 NSRDB_PSM_URL = "https://developer.nrel.gov/api/nsrdb/v2/solar/nsrdb-GOES-aggregated-v4-0-0-download.csv"
+NSRDB_TMY_URL = "https://developer.nrel.gov/api/nsrdb/v2/solar/nsrdb-GOES-tmy-v4-0-0-download.csv"
 
 WEATHER_ATTRIBUTES = [
     "ghi",
@@ -46,13 +47,13 @@ class NSRDBClient:
         self.api_key = api_key
         self.email = email
 
-    def fetch_weather_data(self, lat: float, lon: float, year: int = 2024) -> str:
+    def fetch_weather_data(self, lat: float, lon: float, year: int | str = "tmy") -> str:
         """Fetch hourly weather data from NSRDB for a given location and year.
 
         Args:
             lat: Latitude of the site.
             lon: Longitude of the site.
-            year: Data year to retrieve (default: 2024).
+            year: Data year to retrieve, or "tmy" for TMY data (default: "tmy").
 
         Returns:
             Raw CSV string from the NSRDB API response.
@@ -63,11 +64,19 @@ class NSRDBClient:
         # NSRDB uses WKT format: POINT(lon lat) — longitude first
         wkt = f"POINT({lon} {lat})"
 
+        # Select endpoint URL and names parameter based on year
+        if year == "tmy":
+            url = NSRDB_TMY_URL
+            names = "tmy"
+        else:
+            url = NSRDB_PSM_URL
+            names = str(year)
+
         params = {
             "api_key": self.api_key,
             "email": self.email,
             "wkt": wkt,
-            "names": str(year),
+            "names": names,
             "attributes": ",".join(WEATHER_ATTRIBUTES),
             "interval": "60",
             "leap_day": "true",
@@ -77,7 +86,7 @@ class NSRDBClient:
         logger.info(f"Fetching NSRDB data for ({lat}, {lon}), year={year}")
 
         try:
-            response = requests.get(NSRDB_PSM_URL, params=params, timeout=120)
+            response = requests.get(url, params=params, timeout=120)
             response.raise_for_status()
         except requests.exceptions.Timeout as e:
             logger.error(f"NSRDB request timed out for ({lat}, {lon})")

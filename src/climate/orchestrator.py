@@ -46,7 +46,7 @@ class ClimateOrchestrator:
     def fetch_climate_data(
         self,
         sites: list[SiteConfig],
-        year: int = 2024,
+        year: int | str = "tmy",
         max_age_days: int = 365,
         max_cache_distance_km: float = 50.0,
     ) -> dict[tuple[float, float], dict[str, Any]]:
@@ -137,7 +137,7 @@ class ClimateOrchestrator:
 
             # Step 1: Get NSRDB data (from cache or API)
             cached_path = self.cache_manager.get_cached_file(
-                lat, lon, max_age_days=max_age_days
+                lat, lon, year=year, max_age_days=max_age_days
             )
             if cached_path is not None:
                 cache_path = cached_path
@@ -150,7 +150,7 @@ class ClimateOrchestrator:
                     api_calls += 1
                 except ClimateDataError as e:
                     path = self.handle_api_failure(
-                        lat, lon, e, max_cache_distance_km=max_cache_distance_km
+                        lat, lon, e, year=year, max_cache_distance_km=max_cache_distance_km
                     )
                     results[(lat, lon)] = {
                         "weather_file": path,
@@ -160,7 +160,7 @@ class ClimateOrchestrator:
                     continue
 
                 # Save raw CSV to cache
-                cache_path = self.cache_manager.save_weather_data(lat, lon, raw_csv)
+                cache_path = self.cache_manager.save_weather_data(lat, lon, year, raw_csv)
 
             # Step 2: ERA5-Land — snow depth + precipitation for soiling
             snow_depth_cm = None
@@ -204,6 +204,7 @@ class ClimateOrchestrator:
         lat: float,
         lon: float,
         error: ClimateDataError,
+        year: int | str = "tmy",
         max_cache_distance_km: float = 50.0,
     ) -> Path:
         """Handle an API failure with interactive user prompts.
@@ -225,7 +226,7 @@ class ClimateOrchestrator:
         logger.error(f"API failure for ({lat}, {lon}): {error}")
 
         nearest = self.cache_manager.find_nearest_cache(
-            lat, lon, max_distance_km=max_cache_distance_km
+            lat, lon, year=year, max_distance_km=max_cache_distance_km
         )
 
         for attempt in range(MAX_RETRIES):
@@ -250,9 +251,9 @@ class ClimateOrchestrator:
             if choice == "1":
                 # Retry
                 try:
-                    raw_csv = self.nsrdb_client.fetch_weather_data(lat, lon)
+                    raw_csv = self.nsrdb_client.fetch_weather_data(lat, lon, year)
                     cache_path = self.cache_manager.save_weather_data(
-                        lat, lon, raw_csv
+                        lat, lon, year, raw_csv
                     )
                     df, metadata = self.formatter.format_for_pysam(
                         raw_csv, lat, lon, snow_depth_cm=None

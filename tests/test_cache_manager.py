@@ -17,7 +17,7 @@ class TestGetCachedFile:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = cache_dir / f"nsrdb_33.45_-111.98_{today}.csv"
+        cache_file = cache_dir / f"nsrdb_33.45_-111.98_tmy_{today}.csv"
         cache_file.write_text("fake,data")
 
         manager = CacheManager(cache_dir=cache_dir)
@@ -37,7 +37,7 @@ class TestGetCachedFile:
     def test_cache_miss_different_coords(self, tmp_path: Path) -> None:
         """Returns None when files exist but coords don't match."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = tmp_path / f"nsrdb_40.0_-100.0_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_40.0_-100.0_tmy_{today}.csv"
         cache_file.write_text("fake,data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -50,7 +50,7 @@ class TestGetCachedFile:
         old_date = (datetime.now(timezone.utc) - timedelta(days=400)).strftime(
             "%Y%m%d"
         )
-        cache_file = tmp_path / f"nsrdb_33.45_-111.98_{old_date}.csv"
+        cache_file = tmp_path / f"nsrdb_33.45_-111.98_tmy_{old_date}.csv"
         cache_file.write_text("fake,data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -62,7 +62,7 @@ class TestGetCachedFile:
         recent_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime(
             "%Y%m%d"
         )
-        cache_file = tmp_path / f"nsrdb_33.45_-111.98_{recent_date}.csv"
+        cache_file = tmp_path / f"nsrdb_33.45_-111.98_tmy_{recent_date}.csv"
         cache_file.write_text("fake,data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -77,7 +77,7 @@ class TestFindNearestCache:
         """Returns nearest file when within max_distance_km."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
         # Phoenix area — ~0.1 degree apart is ~10km
-        cache_file = tmp_path / f"nsrdb_33.45_-111.98_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_33.45_-111.98_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -93,7 +93,7 @@ class TestFindNearestCache:
         """Returns None when no cached file is within max_distance_km."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
         # Phoenix
-        cache_file = tmp_path / f"nsrdb_33.45_-111.98_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_33.45_-111.98_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -105,9 +105,9 @@ class TestFindNearestCache:
     def test_picks_closest_of_multiple(self, tmp_path: Path) -> None:
         """Returns the closest file when multiple are within range."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        far_file = tmp_path / f"nsrdb_33.50_-112.10_{today}.csv"
+        far_file = tmp_path / f"nsrdb_33.50_-112.10_tmy_{today}.csv"
         far_file.write_text("data")
-        near_file = tmp_path / f"nsrdb_33.46_-111.99_{today}.csv"
+        near_file = tmp_path / f"nsrdb_33.46_-111.99_tmy_{today}.csv"
         near_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -134,11 +134,11 @@ class TestSaveWeatherData:
         manager = CacheManager(cache_dir=tmp_path)
         data = "Year,Month,Day\n2024,1,1"
 
-        result = manager.save_weather_data(lat=33.45, lon=-111.98, data=data)
+        result = manager.save_weather_data(lat=33.45, lon=-111.98, year="tmy", data=data)
 
         assert result.exists()
         assert result.read_text() == data
-        # Verify filename format: nsrdb_{lat}_{lon}_{YYYYMMDD}.csv
+        # Verify filename format: nsrdb_{lat}_{lon}_{year}_{YYYYMMDD}.csv
         assert result.name.startswith("nsrdb_33.45_-111.98_")
         assert result.name.endswith(".csv")
 
@@ -147,7 +147,7 @@ class TestSaveWeatherData:
         manager = CacheManager(cache_dir=tmp_path)
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
-        result = manager.save_weather_data(lat=33.45, lon=-111.98, data="x")
+        result = manager.save_weather_data(lat=33.45, lon=-111.98, year="tmy", data="x")
 
         assert today in result.name
 
@@ -191,7 +191,7 @@ class TestNonMatchingFilenames:
     def test_non_matching_filename_skipped_in_get_cached(
         self, tmp_path: Path
     ) -> None:
-        """Files not matching nsrdb_{lat}_{lon}_{date}.csv are skipped."""
+        """Files not matching nsrdb_{lat}_{lon}_{year}_{date}.csv are skipped."""
         # Create files that glob matches but regex doesn't
         (tmp_path / "nsrdb_readme.csv").write_text("not a cache file")
         (tmp_path / "nsrdb_backup_old.csv").write_text("not a cache file")
@@ -225,9 +225,9 @@ class TestMultipleCacheFiles:
         """get_cached_file returns None on first stale match (does not search further)."""
         # get_cached_file iterates files and returns None on first stale match,
         # so even if a fresh file exists, it may not be found if stale is checked first
-        (tmp_path / "nsrdb_33.45_-111.98_20240101.csv").write_text("old")
+        (tmp_path / "nsrdb_33.45_-111.98_tmy_20240101.csv").write_text("old")
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        (tmp_path / f"nsrdb_33.45_-111.98_{today}.csv").write_text("new")
+        (tmp_path / f"nsrdb_33.45_-111.98_tmy_{today}.csv").write_text("new")
 
         manager = CacheManager(cache_dir=tmp_path)
 
@@ -243,8 +243,8 @@ class TestMultipleCacheFiles:
     ) -> None:
         """find_nearest_cache finds cached files regardless of date, picks closest by distance."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        (tmp_path / "nsrdb_33.45_-111.98_20240101.csv").write_text("old")
-        (tmp_path / f"nsrdb_33.46_-111.99_{today}.csv").write_text("new")
+        (tmp_path / "nsrdb_33.45_-111.98_tmy_20240101.csv").write_text("old")
+        (tmp_path / f"nsrdb_33.46_-111.99_tmy_{today}.csv").write_text("new")
 
         manager = CacheManager(cache_dir=tmp_path)
         result = manager.find_nearest_cache(lat=33.45, lon=-111.98, max_distance_km=50)
@@ -261,7 +261,7 @@ class TestDistanceBoundary:
     def test_exactly_at_boundary_is_included(self, tmp_path: Path) -> None:
         """File at exactly max_distance_km is included (code uses > not >=)."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = tmp_path / f"nsrdb_33.45_-111.98_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_33.45_-111.98_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -280,7 +280,7 @@ class TestDistanceBoundary:
     def test_just_inside_boundary(self, tmp_path: Path) -> None:
         """File just inside max_distance_km is included."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = tmp_path / f"nsrdb_33.45_-111.98_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_33.45_-111.98_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -295,7 +295,7 @@ class TestDistanceBoundary:
     def test_just_outside_boundary(self, tmp_path: Path) -> None:
         """File just outside max_distance_km is excluded."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = tmp_path / f"nsrdb_33.45_-111.98_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_33.45_-111.98_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -314,7 +314,7 @@ class TestNegativeCoordinatesInFilenames:
     def test_negative_lat_lon_cached(self, tmp_path: Path) -> None:
         """Cache files with negative coordinates are found correctly."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = tmp_path / f"nsrdb_-33.87_-151.21_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_-33.87_-151.21_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -324,7 +324,7 @@ class TestNegativeCoordinatesInFilenames:
     def test_high_precision_coords_cached(self, tmp_path: Path) -> None:
         """Cache files with high-precision coordinates work correctly."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = tmp_path / f"nsrdb_33.448376_-112.074036_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_33.448376_-112.074036_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)
@@ -334,7 +334,7 @@ class TestNegativeCoordinatesInFilenames:
     def test_negative_coords_in_find_nearest(self, tmp_path: Path) -> None:
         """find_nearest_cache works with negative coordinates."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        cache_file = tmp_path / f"nsrdb_-33.87_-151.21_{today}.csv"
+        cache_file = tmp_path / f"nsrdb_-33.87_-151.21_tmy_{today}.csv"
         cache_file.write_text("data")
 
         manager = CacheManager(cache_dir=tmp_path)

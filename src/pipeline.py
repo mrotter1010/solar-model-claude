@@ -36,7 +36,7 @@ logger = setup_logger(__name__)
 
 
 def run_climate_data_pipeline(
-    config_csv: Path, year: int = 2024
+    config_csv: Path, year: int | str = "tmy"
 ) -> tuple[list[SiteConfig], dict[tuple[float, float], list[float] | None]]:
     """Load sites from CSV and fetch climate data for all locations.
 
