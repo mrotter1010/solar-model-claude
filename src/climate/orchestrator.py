@@ -176,6 +176,13 @@ class ClimateOrchestrator:
                 era5_data = self.era5_client(lat, lon, era5_year)
                 if era5_data is not None:
                     snow_depth_cm = era5_data["snow_depth_cm"]
+                    # Trim leap day (Feb 29) when ERA5 year is a leap year
+                    # but weather data is TMY (always 8760 hours, no Feb 29).
+                    # Feb 29 starts at hour index 1416 (Jan=744h + Feb1-28=672h).
+                    if year == "tmy" and len(snow_depth_cm) == 8784:
+                        snow_depth_cm = (
+                            snow_depth_cm[:1416] + snow_depth_cm[1440:]
+                        )
                     monthly_precip_inches = era5_data["monthly_precip_inches"]
                     monthly_soiling = calculate_monthly_soiling(
                         monthly_precip_inches
