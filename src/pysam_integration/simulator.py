@@ -28,7 +28,7 @@ class SimulationResult:
     error_message: str | None = None
     hourly_data: pd.DataFrame | None = None
     loss_data: dict[str, object] | None = None
-    weather_year: int | None = None
+    weather_year: str | None = None
     simulation_timestamp: str = field(default="", init=False)
 
     def __post_init__(self) -> None:
@@ -98,7 +98,7 @@ class PySAMSimulator:
         )
 
     def _extract_timeseries(
-        self, model_config: PySAMModelConfig, weather_year: int | None
+        self, model_config: PySAMModelConfig, weather_year: str | None
     ) -> pd.DataFrame:
         """Extract hourly timeseries from PySAM model outputs.
 
@@ -120,10 +120,13 @@ class PySAMSimulator:
         cell_temp = list(outputs.subarray1_celltemp)  # Cell temperature C
         inv_eff = list(outputs.inv_eff)  # Inverter efficiency %
 
-        # Build timestamps
-        year = weather_year or 2023
+        # Build timestamps (use 2023 as placeholder for TMY or missing year)
+        if weather_year is None or weather_year == "tmy":
+            ts_year = 2023
+        else:
+            ts_year = int(weather_year)
         timestamps = pd.date_range(
-            start=f"{year}-01-01", periods=len(gen), freq="h"
+            start=f"{ts_year}-01-01", periods=len(gen), freq="h"
         )
 
         return pd.DataFrame(
@@ -215,24 +218,30 @@ class PySAMSimulator:
             "annual_ghi_kwh_m2": annual_ghi_kwh_m2,
         }
 
-    def _extract_weather_year(self, weather_file_path: Path | None) -> int | None:
+    def _extract_weather_year(self, weather_file_path: Path | None) -> str | None:
         """Extract the weather year from a PySAM-format weather file.
 
-        PySAM weather files have 2 header rows before column names.
-        Reads the first data row to get the Year value.
+        Returns "tmy" for TMY files (detected by filename containing "_tmy_"),
+        or the year as a string for single-year files.
 
         Args:
             weather_file_path: Path to the weather CSV file.
 
         Returns:
-            Year as integer, or None if extraction fails.
+            "tmy" for TMY files, year string (e.g. "2024") for single-year,
+            or None if extraction fails.
         """
         if weather_file_path is None:
             return None
 
+        # TMY files are cached with "_tmy_" in the filename
+        if "_tmy_" in weather_file_path.name:
+            logger.debug(f"Detected TMY weather file: {weather_file_path.name}")
+            return "tmy"
+
         try:
             df = pd.read_csv(weather_file_path, skiprows=2, nrows=1)
-            year = int(df["Year"].iloc[0])
+            year = str(int(df["Year"].iloc[0]))
             logger.debug(f"Extracted weather year: {year}")
             return year
         except Exception as exc:

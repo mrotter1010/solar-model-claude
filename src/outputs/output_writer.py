@@ -22,7 +22,7 @@ class SummaryMetrics:
     site_name: str
     run_name: str
     customer: str
-    weather_year: int | None
+    weather_year: str | None
 
     # System specs
     dc_size_mw: float

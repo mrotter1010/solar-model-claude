@@ -179,7 +179,7 @@ class TestSuccessfulSimulation:
         result = simulator.execute_simulation(model_config)
 
         assert result.success is True
-        assert result.weather_year == 2021
+        assert result.weather_year == "2021"
 
 
 # -- Test: Missing weather file --
@@ -400,7 +400,7 @@ class TestWeatherYearExtraction:
         simulator = PySAMSimulator()
         year = simulator._extract_weather_year(weather_file)
 
-        assert year == 2020
+        assert year == "2020"
 
     def test_returns_none_for_invalid_csv(self, tmp_path: Path) -> None:
         """Malformed CSV returns None without crashing."""

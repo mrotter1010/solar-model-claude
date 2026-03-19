@@ -100,7 +100,7 @@ class Run(Base):
     )
     git_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     data_sources: Mapped[str | None] = mapped_column(String, nullable=True)
-    weather_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    weather_year: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False)
 
     site: Mapped["Site"] = relationship(back_populates="runs")

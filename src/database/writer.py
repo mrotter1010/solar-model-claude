@@ -164,7 +164,7 @@ def save_run_to_db(
             timestamp=datetime.now(timezone.utc),
             git_hash=_get_git_hash(),
             data_sources=build_data_sources(site_config),
-            weather_year=summary.get("weather_year", 0),
+            weather_year=summary.get("weather_year"),
             status="success",
         )
         session.add(run)
