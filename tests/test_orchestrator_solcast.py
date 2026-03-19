@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from src.climate.cache_manager import CacheManager
@@ -207,7 +208,8 @@ class TestNsrdbDataSource:
 
         result = results[(33.45, -111.98)]
         assert result["data_source"] == "nsrdb"
-        assert result["weather_file"].exists()
+        assert isinstance(result["weather_df"], pd.DataFrame)
+        assert isinstance(result["weather_metadata"], dict)
         mock_client.fetch_weather_data.assert_called_once()
 
 
@@ -313,7 +315,7 @@ class TestMixedSources:
         # Tucson → NSRDB path
         tucson_result = results[(32.253, -110.911)]
         assert tucson_result["data_source"] == "nsrdb"
-        assert tucson_result["weather_file"].exists()
+        assert isinstance(tucson_result["weather_df"], pd.DataFrame)
 
         # NSRDB called exactly once (Tucson only)
         mock_client.fetch_weather_data.assert_called_once()
@@ -329,7 +331,7 @@ class TestMixedSources:
             },
             "tucson": {
                 "data_source": tucson_result["data_source"],
-                "weather_file": str(tucson_result["weather_file"]),
+                "weather_df_rows": len(tucson_result["weather_df"]),
             },
             "nsrdb_calls": mock_client.fetch_weather_data.call_count,
             "era5_calls": mock_era5.call_count,

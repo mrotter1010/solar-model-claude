@@ -210,7 +210,7 @@ class TestWP7SmokeTests:
         for site in sites:
             site.weather_file_path = Path("/fake/weather.csv")
             site.data_source = "nsrdb"
-        mock_climate.return_value = (sites, {})
+        mock_climate.return_value = (sites, {}, {})
 
         # Per-site simulation results with different CFs
         # Phoenix tracker: CF_ac=32% (high desert CF)

@@ -243,7 +243,7 @@ class ModelConfigurator:
             cec.cec_is_bifacial = 0
             cec.cec_bifaciality = 0.0
             cec.cec_bifacial_transmission_factor = 0.0
-            cec.cec_bifacial_ground_clearance_height = 0.0
+            cec.cec_bifacial_ground_clearance_height = site_config.ground_clearance_height_m
 
     def _configure_inverter(
         self,

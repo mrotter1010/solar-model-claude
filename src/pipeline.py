@@ -1,5 +1,6 @@
 """Main pipeline: CSV → climate data → PySAM simulation → output files."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,16 @@ logger = setup_logger(__name__)
 
 def run_climate_data_pipeline(
     config_csv: Path, year: int | str = "tmy"
-) -> tuple[list[SiteConfig], dict[tuple[float, float], list[float] | None]]:
-    """Load sites from CSV and fetch climate data for all locations.
+) -> tuple[
+    list[SiteConfig],
+    dict[tuple[float, float], list[float] | None],
+    dict[str, dict],
+]:
+    """Load sites from CSV, fetch climate data, and apply bias correction.
+
+    Bias correction is applied once per unique location and saved to
+    data/climate/cache/corrected/. All sites sharing the same lat/lon
+    reuse the same corrected file, preventing triple-correction.
 
     Args:
         config_csv: Path to CSV file with site configurations.
@@ -49,6 +58,7 @@ def run_climate_data_pipeline(
             - List of SiteConfig objects with weather_file_path assigned.
             - Dict mapping (lat, lon) to monthly soiling losses (12 floats)
               or None if ERA5 data was unavailable.
+            - Dict mapping site_name to bias correction metadata.
     """
     # Load and validate site configurations
     sites = load_config(config_csv)
@@ -77,18 +87,81 @@ def run_climate_data_pipeline(
         max_cache_distance_km=config.max_cache_distance_km,
     )
 
-    # Extract weather file paths and soiling data from orchestrator results
+    # Apply bias correction per unique location and assign weather files
     soiling_lookup: dict[tuple[float, float], list[float] | None] = {}
-    for site in sites:
-        if site.location in location_results:
-            result = location_results[site.location]
-            site.weather_file_path = result["weather_file"]
-            site.data_source = result.get("data_source", "nsrdb")
-            site.solcast_metadata = result.get("solcast_metadata")
-            soiling_lookup[site.location] = result["monthly_soiling"]
+    bias_correction_lookup: dict[str, dict] = {}
+    corrected_cache_dir = Path("data/climate/cache/corrected")
+    corrected_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    for (lat, lon), result in location_results.items():
+        soiling_lookup[(lat, lon)] = result["monthly_soiling"]
+        data_source = result.get("data_source", "nsrdb")
+
+        if data_source == "solcast":
+            # Solcast: assign file directly, no bias correction
+            for site in sites:
+                if site.location == (lat, lon):
+                    site.weather_file_path = result["weather_file"]
+                    site.data_source = "solcast"
+                    site.solcast_metadata = result.get("solcast_metadata")
+            continue
+
+        # NSRDB: check corrected cache, apply bias correction if needed
+        weather_df = result["weather_df"]
+        weather_metadata = result["weather_metadata"]
+        corrected_path = _find_corrected_cache(corrected_cache_dir, lat, lon, year)
+        bias_meta: dict | None = None
+
+        if corrected_path is None:
+            try:
+                elevation_m = get_elevation_m(lat, lon)
+                corrected_df, bias_meta = apply_bias_correction(
+                    weather_df, lat, lon, elevation_m,
+                )
+                date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+                corrected_path = (
+                    corrected_cache_dir
+                    / f"corrected_{lat}_{lon}_{year}_{date_str}.csv"
+                )
+                formatter.save_to_csv(
+                    corrected_df, corrected_path, lat, lon,
+                    metadata=weather_metadata,
+                )
+                logger.info(
+                    f"Saved corrected weather for ({lat}, {lon}): "
+                    f"GHI CF={bias_meta['mean_ghi_correction_factor']:.4f}, "
+                    f"DNI CF={bias_meta['mean_dni_correction_factor']:.4f}"
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"Bias correction failed for ({lat}, {lon}): {exc}. "
+                    f"Using uncorrected data."
+                )
+                date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+                corrected_path = (
+                    corrected_cache_dir
+                    / f"corrected_{lat}_{lon}_{year}_{date_str}.csv"
+                )
+                formatter.save_to_csv(
+                    weather_df, corrected_path, lat, lon,
+                    metadata=weather_metadata,
+                )
+        else:
+            logger.info(
+                f"Corrected cache hit for ({lat}, {lon}): "
+                f"{corrected_path.name}"
+            )
+
+        # Assign corrected path to ALL sites at this location
+        for site in sites:
+            if site.location == (lat, lon):
+                site.weather_file_path = corrected_path
+                site.data_source = "nsrdb"
+                if bias_meta is not None:
+                    bias_correction_lookup[site.site_name] = bias_meta
 
     print_summary(sites, location_results)
-    return sites, soiling_lookup
+    return sites, soiling_lookup, bias_correction_lookup
 
 
 def print_summary(
@@ -107,6 +180,25 @@ def print_summary(
         f"{len(location_results)} unique locations, "
         f"{sites_with_data} sites with weather data assigned"
     )
+
+
+def _find_corrected_cache(
+    cache_dir: Path, lat: float, lon: float, year: int | str
+) -> Path | None:
+    """Find an existing corrected cache file for the given coordinates.
+
+    Args:
+        cache_dir: Corrected cache directory to search.
+        lat: Latitude to match.
+        lon: Longitude to match.
+        year: Data year or "tmy" to match.
+
+    Returns:
+        Path to the most recent corrected cache file, or None.
+    """
+    pattern = f"corrected_{lat}_{lon}_{year}_*.csv"
+    matches = sorted(cache_dir.glob(pattern))
+    return matches[-1] if matches else None
 
 
 def _print_run_summary(rows: list[tuple[str, str, str, str]]) -> None:
@@ -352,11 +444,14 @@ class SolarModelingPipeline:
         site_configs = load_config(csv_path)
         logger.info(f"Loaded {len(site_configs)} sites")
 
-        # Step 2: Climate data retrieval
+        # Step 2: Climate data retrieval + bias correction (per unique location)
         soiling_lookup: dict[tuple[float, float], list[float] | None] = {}
+        bias_correction_lookup: dict[str, dict] = {}
         if not skip_climate:
             logger.info("Fetching climate data...")
-            site_configs, soiling_lookup = run_climate_data_pipeline(csv_path)
+            site_configs, soiling_lookup, bias_correction_lookup = (
+                run_climate_data_pipeline(csv_path)
+            )
         else:
             logger.info("Skipping climate data fetch (skip_climate=True)")
 
@@ -369,13 +464,6 @@ class SolarModelingPipeline:
             logger.warning(
                 f"{len(sites_without_weather)} sites missing weather data: {names}"
             )
-
-        # Step 2.5: Apply NSRDB bias correction to weather files
-        bias_correction_lookup: dict[str, dict] = {}
-        for site in site_configs:
-            bias_meta = self._apply_nsrdb_bias_correction(site)
-            if bias_meta is not None:
-                bias_correction_lookup[site.site_name] = bias_meta
 
         # Step 3: Run PySAM simulations
         logger.info("Running PySAM simulations...")

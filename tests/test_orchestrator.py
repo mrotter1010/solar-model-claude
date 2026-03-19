@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from src.climate.cache_manager import CacheManager
@@ -189,11 +190,12 @@ class TestApiFailureHandling:
         ]
 
         with patch("builtins.input", return_value="1"):
-            path = orchestrator.handle_api_failure(
+            df, metadata = orchestrator.handle_api_failure(
                 33.45, -111.98, ClimateDataError("API error")
             )
 
-        assert path.exists()
+        assert isinstance(df, pd.DataFrame)
+        assert isinstance(metadata, dict)
 
     def test_retry_exhausted_raises(
         self, orchestrator: ClimateOrchestrator, mock_client: MagicMock
@@ -263,11 +265,12 @@ class TestNearestCacheFallback:
 
         # User picks option 2 (use nearest cache)
         with patch("builtins.input", return_value="2"):
-            path = orch.handle_api_failure(
+            df, metadata = orch.handle_api_failure(
                 33.45, -111.98, ClimateDataError("API error")
             )
 
-        assert path == nearby_file.with_suffix(".pysam.csv")
+        assert isinstance(df, pd.DataFrame)
+        assert isinstance(metadata, dict)
 
     def test_distant_cache_not_offered(
         self, tmp_path: Path, mock_client: MagicMock
@@ -320,7 +323,12 @@ class TestIntegration:
         # Assert — 2 unique locations, both mapped to result dicts
         assert len(results) == 2
         for (lat, lon), result in results.items():
-            assert result["weather_file"].exists(), f"Weather file missing for ({lat}, {lon})"
+            assert isinstance(result["weather_df"], pd.DataFrame), (
+                f"weather_df missing for ({lat}, {lon})"
+            )
+            assert isinstance(result["weather_metadata"], dict), (
+                f"weather_metadata missing for ({lat}, {lon})"
+            )
 
         # Only 2 API calls for 3 sites
         assert mock_client.fetch_weather_data.call_count == 2
@@ -331,7 +339,8 @@ class TestIntegration:
             "unique_locations": len(results),
             "api_calls": mock_client.fetch_weather_data.call_count,
             "location_mapping": {
-                f"({lat}, {lon})": str(result["weather_file"]) for (lat, lon), result in results.items()
+                f"({lat}, {lon})": f"DataFrame({len(result['weather_df'])} rows)"
+                for (lat, lon), result in results.items()
             },
         }
         output_path = test_results_dir / "test_orchestrator_integration.json"
@@ -457,7 +466,8 @@ class TestApiFailureInFetchClimateData:
         # Should have recovered using the nearby cache
         assert len(results) == 1
         result = list(results.values())[0]
-        assert result["weather_file"] == nearby_cache.with_suffix(".pysam.csv")
+        assert isinstance(result["weather_df"], pd.DataFrame)
+        assert isinstance(result["weather_metadata"], dict)
 
     def test_api_failure_abort_in_fetch_climate_data(
         self,
@@ -505,7 +515,8 @@ class TestEnhancedIntegration:
         assert len(results) == 3  # 3 unique locations
         assert mock_client.fetch_weather_data.call_count == 3
         for result in results.values():
-            assert result["weather_file"].exists()
+            assert isinstance(result["weather_df"], pd.DataFrame)
+            assert isinstance(result["weather_metadata"], dict)
 
         # Write integration summary
         summary_path = climate_results_dir / "integration_summary.json"
@@ -517,7 +528,11 @@ class TestEnhancedIntegration:
                     "api_calls": mock_client.fetch_weather_data.call_count,
                     "cache_hits": 0,
                     "locations": [
-                        {"lat": lat, "lon": lon, "file": str(result["weather_file"])}
+                        {
+                            "lat": lat,
+                            "lon": lon,
+                            "df_rows": len(result["weather_df"]),
+                        }
                         for (lat, lon), result in results.items()
                     ],
                 },

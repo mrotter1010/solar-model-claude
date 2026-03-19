@@ -4,6 +4,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from src.climate.cache_manager import CacheManager
 from src.climate.nsrdb_client import NSRDBClient
 from src.climate.soiling_calculator import calculate_monthly_soiling
@@ -149,11 +151,12 @@ class ClimateOrchestrator:
                     raw_csv = self.nsrdb_client.fetch_weather_data(lat, lon, year)
                     api_calls += 1
                 except ClimateDataError as e:
-                    path = self.handle_api_failure(
+                    df, metadata = self.handle_api_failure(
                         lat, lon, e, year=year, max_cache_distance_km=max_cache_distance_km
                     )
                     results[(lat, lon)] = {
-                        "weather_file": path,
+                        "weather_df": df,
+                        "weather_metadata": metadata,
                         "monthly_soiling": None,
                         "data_source": "nsrdb",
                     }
@@ -179,16 +182,16 @@ class ClimateOrchestrator:
                         f"using default snow/soiling"
                     )
 
-            # Step 3: Format and save PySAM-compatible file alongside cache
+            # Step 3: Format PySAM-compatible data (returned in-memory for
+            # pipeline to apply bias correction and save to corrected cache)
             df, metadata = self.formatter.format_for_pysam(
                 raw_csv, lat, lon,
                 snow_depth_cm=snow_depth_cm,
             )
-            pysam_path = cache_path.with_suffix(".pysam.csv")
-            self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
 
             results[(lat, lon)] = {
-                "weather_file": pysam_path,
+                "weather_df": df,
+                "weather_metadata": metadata,
                 "monthly_soiling": monthly_soiling,
                 "data_source": "nsrdb",
             }
@@ -206,7 +209,7 @@ class ClimateOrchestrator:
         error: ClimateDataError,
         year: int | str = "tmy",
         max_cache_distance_km: float = 50.0,
-    ) -> Path:
+    ) -> tuple[pd.DataFrame, dict]:
         """Handle an API failure with interactive user prompts.
 
         Offers retry, nearest cache fallback (if available), or abort.
@@ -218,7 +221,7 @@ class ClimateOrchestrator:
             max_cache_distance_km: Maximum distance for nearest-cache fallback.
 
         Returns:
-            Path to recovered weather file.
+            Tuple of (formatted DataFrame, metadata dict) for bias correction.
 
         Raises:
             ClimateDataError: If user chooses to abort.
@@ -252,18 +255,16 @@ class ClimateOrchestrator:
                 # Retry
                 try:
                     raw_csv = self.nsrdb_client.fetch_weather_data(lat, lon, year)
-                    cache_path = self.cache_manager.save_weather_data(
+                    self.cache_manager.save_weather_data(
                         lat, lon, year, raw_csv
                     )
                     df, metadata = self.formatter.format_for_pysam(
                         raw_csv, lat, lon, snow_depth_cm=None
                     )
-                    pysam_path = cache_path.with_suffix(".pysam.csv")
-                    self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
                     logger.info(
                         f"Retry successful for ({lat}, {lon}) on attempt {attempt + 1}"
                     )
-                    return pysam_path
+                    return df, metadata
                 except ClimateDataError as retry_error:
                     logger.warning(
                         f"Retry {attempt + 1}/{MAX_RETRIES} failed for ({lat}, {lon})"
@@ -281,9 +282,7 @@ class ClimateOrchestrator:
                 df, metadata = self.formatter.format_for_pysam(
                     raw_csv, lat, lon, snow_depth_cm=None
                 )
-                pysam_path = nearest_path.with_suffix(".pysam.csv")
-                self.formatter.save_to_csv(df, pysam_path, lat, lon, metadata=metadata)
-                return pysam_path
+                return df, metadata
 
             # Abort (choice matches abort number, or any unrecognized input)
             logger.error(f"User aborted climate data fetch for ({lat}, {lon})")

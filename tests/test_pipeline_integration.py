@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from src.climate.cache_manager import CacheManager
@@ -46,16 +47,14 @@ class TestSingleSitePipeline:
         )
 
         sites = load_config(SINGLE_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
-        # Assign weather file paths
-        for site in sites:
-            if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]["weather_file"]
-
+        # NSRDB results now return weather_df + weather_metadata (no file)
         assert len(sites) == 1
-        assert sites[0].weather_file_path is not None
-        assert sites[0].has_climate_data is True
+        result = location_results[sites[0].location]
+        assert isinstance(result["weather_df"], pd.DataFrame)
+        assert isinstance(result["weather_metadata"], dict)
+        assert result["data_source"] == "nsrdb"
         mock_nsrdb.fetch_weather_data.assert_called_once()
 
     def test_single_site_correct_location(self) -> None:
@@ -111,18 +110,18 @@ class TestMultiSitePipeline:
         )
 
         sites = load_config(MULTI_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
-        for site in sites:
-            if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]["weather_file"]
+        # Both sites share the same location — single result entry
+        assert len(location_results) == 1
+        result = list(location_results.values())[0]
+        assert isinstance(result["weather_df"], pd.DataFrame)
+        assert isinstance(result["weather_metadata"], dict)
 
-        # Both sites should have the same weather file
-        assert sites[0].weather_file_path is not None
-        assert sites[1].weather_file_path is not None
-        assert sites[0].weather_file_path == sites[1].weather_file_path
-        assert sites[0].has_climate_data is True
-        assert sites[1].has_climate_data is True
+        # Both sites map to the same location key
+        assert sites[0].location in location_results
+        assert sites[1].location in location_results
+        assert sites[0].location == sites[1].location
 
 
 class TestCachePersistence:
@@ -177,10 +176,15 @@ class TestWeatherFileFormat:
         )
 
         sites = load_config(SINGLE_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
-        # weather_file is already the PySAM-formatted .pysam.csv path
-        pysam_path = location_to_file[(33.483, -112.073)]["weather_file"]
+        # Save weather_df to file using formatter (orchestrator no longer writes files)
+        result = location_results[(33.483, -112.073)]
+        pysam_path = tmp_path / "pysam_output.csv"
+        formatter.save_to_csv(
+            result["weather_df"], pysam_path, 33.483, -112.073,
+            metadata=result["weather_metadata"],
+        )
         assert pysam_path.exists()
 
         lines = pysam_path.read_text().splitlines()
@@ -211,10 +215,15 @@ class TestWeatherFileFormat:
         )
 
         sites = load_config(SINGLE_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
-        # weather_file is already the PySAM-formatted .pysam.csv path
-        pysam_path = location_to_file[(33.483, -112.073)]["weather_file"]
+        # Save weather_df to file using formatter (orchestrator no longer writes files)
+        result = location_results[(33.483, -112.073)]
+        pysam_path = tmp_path / "pysam_output.csv"
+        formatter.save_to_csv(
+            result["weather_df"], pysam_path, 33.483, -112.073,
+            metadata=result["weather_metadata"],
+        )
         lines = pysam_path.read_text().splitlines()
 
         # Line 3: column names
@@ -244,10 +253,15 @@ class TestWeatherFileFormat:
         )
 
         sites = load_config(SINGLE_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
-        # weather_file is already the PySAM-formatted .pysam.csv path
-        pysam_path = location_to_file[(33.483, -112.073)]["weather_file"]
+        # Save weather_df to file using formatter (orchestrator no longer writes files)
+        result = location_results[(33.483, -112.073)]
+        pysam_path = tmp_path / "pysam_output.csv"
+        formatter.save_to_csv(
+            result["weather_df"], pysam_path, 33.483, -112.073,
+            metadata=result["weather_metadata"],
+        )
         lines = pysam_path.read_text().splitlines()
 
         # 2 header lines + 1 column names line + 8760 data rows
@@ -278,15 +292,22 @@ class TestPipelineSummary:
         )
 
         sites = load_config(MULTI_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
+        # Save weather_df to file and assign to sites (simulates pipeline behavior)
         for site in sites:
-            if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]["weather_file"]
+            if site.location in location_results:
+                result = location_results[site.location]
+                pysam_path = tmp_path / f"pysam_{site.latitude}_{site.longitude}.csv"
+                formatter.save_to_csv(
+                    result["weather_df"], pysam_path, site.latitude, site.longitude,
+                    metadata=result["weather_metadata"],
+                )
+                site.weather_file_path = pysam_path
 
         import logging
         with caplog.at_level(logging.INFO):
-            print_summary(sites, location_to_file)
+            print_summary(sites, location_results)
 
         assert "2 total sites" in caplog.text
         assert "1 unique locations" in caplog.text
@@ -300,8 +321,12 @@ class TestRunClimatePipeline:
     @patch("src.pipeline.NSRDBClient")
     @patch("src.pipeline.CacheManager")
     @patch("src.pipeline.fetch_era5_land_data")
+    @patch("src.pipeline.get_elevation_m", return_value=340.0)
+    @patch("src.pipeline.apply_bias_correction")
     def test_full_pipeline_function(
         self,
+        mock_apply: MagicMock,
+        mock_elev: MagicMock,
         mock_era5: MagicMock,
         mock_cache_cls: MagicMock,
         mock_nsrdb_cls: MagicMock,
@@ -335,7 +360,22 @@ class TestRunClimatePipeline:
         mock_cache = CacheManager(cache_dir=tmp_path / "cache")
         mock_cache_cls.return_value = mock_cache
 
-        sites, _soiling_lookup = run_climate_data_pipeline(SINGLE_ROW_CSV, year=2024)
+        # Mock bias correction to return identity transform + metadata
+        def fake_apply(df, lat, lon, elev):
+            meta = {
+                "bias_correction_applied": True,
+                "bias_correction_model_version": "1.0.0",
+                "mean_ghi_correction_factor": 1.0,
+                "mean_dni_correction_factor": 1.0,
+                "monthly_ghi_factors": {str(m): 1.0 for m in range(1, 13)},
+                "monthly_dni_factors": {str(m): 1.0 for m in range(1, 13)},
+            }
+            return df.copy(), meta
+        mock_apply.side_effect = fake_apply
+
+        sites, _soiling_lookup, _bias_lookup = run_climate_data_pipeline(
+            SINGLE_ROW_CSV, year=2024,
+        )
 
         assert len(sites) == 1
         assert sites[0].weather_file_path is not None
@@ -366,18 +406,27 @@ class TestIntegrationArtifacts:
 
         # Run with multi-row CSV
         sites = load_config(MULTI_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
+        # Save weather_df to file and assign to sites (simulates pipeline behavior)
         for site in sites:
-            if site.location in location_to_file:
-                site.weather_file_path = location_to_file[site.location]["weather_file"]
+            if site.location in location_results:
+                result = location_results[site.location]
+                pysam_path = tmp_path / f"pysam_{site.latitude}_{site.longitude}.csv"
+                if not pysam_path.exists():
+                    formatter.save_to_csv(
+                        result["weather_df"], pysam_path,
+                        site.latitude, site.longitude,
+                        metadata=result["weather_metadata"],
+                    )
+                site.weather_file_path = pysam_path
 
         # Write summary JSON
         summary = {
             "milestone": 2,
             "test": "integration",
             "total_sites": len(sites),
-            "unique_locations": len(location_to_file),
+            "unique_locations": len(location_results),
             "sites_with_weather_data": sum(
                 1 for s in sites if s.weather_file_path is not None
             ),
@@ -417,19 +466,19 @@ class TestIntegrationArtifacts:
         )
 
         sites = load_config(SINGLE_ROW_CSV)
-        location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+        location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
-        # Copy weather files to test results
+        # Save weather_df to files and copy to test results
         sample_dir = test_results_dir / "climate" / "sample_weather_files"
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        for (lat, lon), result in location_to_file.items():
-            weather_file = result["weather_file"]
-            shutil.copy2(weather_file, sample_dir / weather_file.name)
-            # Also copy PySAM version if it exists
-            pysam_path = weather_file.with_suffix(".pysam.csv")
-            if pysam_path.exists():
-                shutil.copy2(pysam_path, sample_dir / pysam_path.name)
+        for (lat, lon), result in location_results.items():
+            pysam_path = tmp_path / f"pysam_{lat}_{lon}.csv"
+            formatter.save_to_csv(
+                result["weather_df"], pysam_path, lat, lon,
+                metadata=result["weather_metadata"],
+            )
+            shutil.copy2(pysam_path, sample_dir / pysam_path.name)
 
         assert any(sample_dir.iterdir())
 
@@ -455,13 +504,21 @@ class TestIntegrationArtifacts:
         import logging
         with caplog.at_level(logging.DEBUG):
             sites = load_config(SINGLE_ROW_CSV)
-            location_to_file = orchestrator.fetch_climate_data(sites, year=2024)
+            location_results = orchestrator.fetch_climate_data(sites, year=2024)
 
+            # Save weather_df to file and assign to sites
             for site in sites:
-                if site.location in location_to_file:
-                    site.weather_file_path = location_to_file[site.location]["weather_file"]
+                if site.location in location_results:
+                    result = location_results[site.location]
+                    pysam_path = tmp_path / f"pysam_{site.latitude}_{site.longitude}.csv"
+                    formatter.save_to_csv(
+                        result["weather_df"], pysam_path,
+                        site.latitude, site.longitude,
+                        metadata=result["weather_metadata"],
+                    )
+                    site.weather_file_path = pysam_path
 
-            print_summary(sites, location_to_file)
+            print_summary(sites, location_results)
 
         log_dir = test_results_dir / "climate"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -502,20 +559,27 @@ class TestDataSourceWiring:
             lat=self.PHOENIX_LAT, lon=self.PHOENIX_LON, year=2024, num_hours=8760
         )
 
+        formatter = WeatherFormatter()
         orch = ClimateOrchestrator(
             nsrdb_client=mock_nsrdb,
             cache_manager=CacheManager(cache_dir=tmp_path / "cache"),
-            formatter=WeatherFormatter(),
+            formatter=formatter,
         )
 
         sites = load_config(SINGLE_ROW_CSV)
         location_results = orch.fetch_climate_data(sites, year=2024)
 
-        # Simulate pipeline assignment
+        # Simulate pipeline assignment (save df to file, then assign)
         for site in sites:
             if site.location in location_results:
                 result = location_results[site.location]
-                site.weather_file_path = result["weather_file"]
+                pysam_path = tmp_path / f"pysam_{site.latitude}_{site.longitude}.csv"
+                formatter.save_to_csv(
+                    result["weather_df"], pysam_path,
+                    site.latitude, site.longitude,
+                    metadata=result["weather_metadata"],
+                )
+                site.weather_file_path = pysam_path
                 site.data_source = result.get("data_source", "nsrdb")
                 site.solcast_metadata = result.get("solcast_metadata")
 

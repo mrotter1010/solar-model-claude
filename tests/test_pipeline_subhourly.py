@@ -320,7 +320,7 @@ class TestPipelineWithCorrection:
         sites = load_config(SINGLE_ROW_CSV)
         site = sites[0]
         site.weather_file_path = Path("/fake/weather.csv")
-        mock_climate.return_value = (sites, {})
+        mock_climate.return_value = (sites, {}, {})
         mock_sim.return_value = _make_result_with_loss_data(
             site, ac_value=ac_value, dc_value=dc_value,
         )
@@ -363,7 +363,7 @@ class TestPipelineWithCorrection:
         sites = load_config(SINGLE_ROW_CSV)
         site = sites[0]
         site.weather_file_path = Path("/fake/weather.csv")
-        mock_climate.return_value = (sites, {})
+        mock_climate.return_value = (sites, {}, {})
         mock_sim.return_value = _make_result_with_loss_data(site)
 
         # Act
@@ -446,7 +446,7 @@ class TestCorrectionOutputArtifact:
         sites = load_config(SINGLE_ROW_CSV)
         site = sites[0]
         site.weather_file_path = Path("/fake/weather.csv")
-        mock_climate.return_value = (sites, {})
+        mock_climate.return_value = (sites, {}, {})
         mock_sim.return_value = _make_result_with_loss_data(site, ac_value=5000.0)
 
         # Act

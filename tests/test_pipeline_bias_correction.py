@@ -324,12 +324,10 @@ class TestBiasCorrectionInSummary:
     @patch("src.pipeline.get_model_version", return_value="v1")
     @patch("src.pipeline.predict_correction", return_value=0.0)
     @patch("src.pipeline.compute_weather_features")
-    @patch("src.pipeline.apply_bias_correction")
-    @patch("src.pipeline.get_elevation_m", return_value=340.0)
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_summary_contains_bias_metadata(
-        self, mock_sim, mock_climate, mock_elev, mock_apply,
+        self, mock_sim, mock_climate,
         mock_weather_features, mock_predict, mock_version, tmp_path,
     ):
         """Summary dict includes bias correction keys when NSRDB is the source."""
@@ -342,11 +340,10 @@ class TestBiasCorrectionInSummary:
         site.weather_file_path = weather_path
         site.data_source = "nsrdb"
         site.resource_file_path = None
-        mock_climate.return_value = (sites, {})
-
-        # Mock the bias correction to return metadata
-        original_df = pd.read_csv(weather_path, skiprows=2)
-        mock_apply.return_value = (original_df.copy(), FAKE_CORRECTION_META.copy())
+        # 3-tuple: bias correction metadata now comes from the 3rd return value
+        mock_climate.return_value = (
+            sites, {}, {site.site_name: FAKE_CORRECTION_META.copy()},
+        )
 
         # Mock the PySAM simulation
         mock_weather_features.return_value = {"annual_ghi": 2131.0}
@@ -381,7 +378,7 @@ class TestBiasCorrectionInSummary:
         _make_sam_weather_csv(site.weather_file_path)
         site.data_source = "solcast"
         site.resource_file_path = None
-        mock_climate.return_value = (sites, {})
+        mock_climate.return_value = (sites, {}, {})
 
         mock_weather_features.return_value = {"annual_ghi": 2131.0}
         mock_sim.return_value = _make_sim_result(site)
