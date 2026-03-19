@@ -80,6 +80,7 @@ class PySAMSimulator:
 
         # Extract loss data, scalars, and monthly arrays for reporting
         loss_data = self._extract_loss_data(outputs)
+        loss_data["bifacial"] = site.bifacial
 
         logger.info(
             f"Simulation complete for {site.site_name}: "

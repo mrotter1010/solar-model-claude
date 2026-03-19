@@ -150,21 +150,27 @@ def extract_loss_waterfall(loss_data: dict) -> list[dict]:
     })
 
     # b. POA & Module Losses (nominal → gross)
+    is_bifacial = bool(loss_data.get("bifacial", False))
+
     poa_module_delta = annual_dc_nominal - annual_dc_gross
     if round(poa_module_delta) != 0:
+        poa_sub_losses = [
+            {"label": "Snow", "percent": _get("annual_dc_snow_loss_percent")},
+            {"label": "Shading", "percent": _get("annual_poa_shading_loss_percent")},
+            {"label": "Soiling", "percent": _get("annual_poa_soiling_loss_percent")},
+            {"label": "Cover/IAM", "percent": _get("annual_poa_cover_loss_percent")},
+            {"label": "Module Efficiency", "percent": _get("annual_dc_module_loss_percent")},
+        ]
+        if is_bifacial:
+            poa_sub_losses.append(
+                {"label": "Bifacial Gain", "percent": -_get("annual_poa_rear_gain_percent")}
+            )
         steps.append({
             "label": "POA & Module Losses",
             "energy_kwh": poa_module_delta,
             "loss_percent": _loss_pct(annual_dc_nominal, annual_dc_gross),
             "type": "loss",
-            "sub_losses": _filter_sub_losses([
-                {"label": "Snow", "percent": _get("annual_dc_snow_loss_percent")},
-                {"label": "Shading", "percent": _get("annual_poa_shading_loss_percent")},
-                {"label": "Soiling", "percent": _get("annual_poa_soiling_loss_percent")},
-                {"label": "Cover/IAM", "percent": _get("annual_poa_cover_loss_percent")},
-                {"label": "Module Efficiency", "percent": _get("annual_dc_module_loss_percent")},
-                {"label": "Bifacial Gain", "percent": -_get("annual_poa_rear_gain_percent")},
-            ]),
+            "sub_losses": _filter_sub_losses(poa_sub_losses),
         })
 
     # c. DC Losses (gross → net)
@@ -177,7 +183,10 @@ def extract_loss_waterfall(loss_data: dict) -> list[dict]:
             "type": "loss",
             "sub_losses": _filter_sub_losses([
                 {"label": "Mismatch", "percent": _get("annual_dc_mismatch_loss_percent")},
-                {"label": "Bifacial Mismatch", "percent": _get("annual_bifacial_electrical_mismatch_percent")},
+                *(
+                    [{"label": "Bifacial Mismatch", "percent": _get("annual_bifacial_electrical_mismatch_percent")}]
+                    if is_bifacial else []
+                ),
                 {"label": "Diodes & Connections", "percent": _get("annual_dc_diodes_loss_percent")},
                 {"label": "DC Wiring", "percent": _get("annual_dc_wiring_loss_percent")},
                 {"label": "Tracking Error", "percent": _get("annual_dc_tracking_loss_percent")},

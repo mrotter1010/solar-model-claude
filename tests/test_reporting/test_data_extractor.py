@@ -61,6 +61,8 @@ def _make_loss_data(**overrides: object) -> dict:
         # GHI metrics
         "avg_daytime_ghi_wm2": 490.5,
         "annual_ghi_kwh_m2": 2131.8,
+        # Bifacial flag (threaded from SiteConfig for conditional reporting)
+        "bifacial": True,
     }
     data.update(overrides)
     return data
