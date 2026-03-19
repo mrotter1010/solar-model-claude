@@ -97,7 +97,9 @@ class ClimateOrchestrator:
                 # ERA5 for precipitation (soiling) — still needed even with Solcast
                 monthly_soiling = None
                 if self.era5_client is not None:
-                    era5_data = self.era5_client(lat, lon, year)
+                    # TODO M-future: average multiple ERA5 years for TMY instead of using single year
+                    era5_year = 2024 if year == "tmy" else year
+                    era5_data = self.era5_client(lat, lon, era5_year)
                     if era5_data is not None:
                         monthly_precip_inches = era5_data["monthly_precip_inches"]
                         monthly_soiling = calculate_monthly_soiling(
@@ -169,7 +171,9 @@ class ClimateOrchestrator:
             snow_depth_cm = None
             monthly_soiling = None
             if self.era5_client is not None:
-                era5_data = self.era5_client(lat, lon, year)
+                # TODO M-future: average multiple ERA5 years for TMY instead of using single year
+                era5_year = 2024 if year == "tmy" else year
+                era5_data = self.era5_client(lat, lon, era5_year)
                 if era5_data is not None:
                     snow_depth_cm = era5_data["snow_depth_cm"]
                     monthly_precip_inches = era5_data["monthly_precip_inches"]

@@ -477,8 +477,9 @@ class SolarModelingPipeline:
         summaries: list[dict] = []
         error_files: list[Path] = []
 
-        # Build a lookup from site_name to SiteConfig for output writing
-        site_lookup = {s.site_name: s for s in site_configs}
+        # Build a lookup from run_name to SiteConfig for output writing
+        # (run_name is unique per row; site_name can repeat across runs)
+        site_lookup = {s.run_name: s for s in site_configs}
 
         report_files: list[Path] = []
 
@@ -486,7 +487,7 @@ class SolarModelingPipeline:
         run_summary_rows: list[tuple[str, str, str, str]] = []
 
         for result in successful:
-            site = site_lookup[result.site_name]
+            site = site_lookup[result.run_name]
 
             # Apply subhourly resolution correction (modifies ac_gross in place)
             correction_metadata = self._apply_subhourly_correction(result, site)
@@ -569,7 +570,7 @@ class SolarModelingPipeline:
                 )
 
         for result in failed:
-            site = site_lookup[result.site_name]
+            site = site_lookup[result.run_name]
             _, error_path = self.output_writer.write_outputs(
                 simulation_result=result,
                 site_config=site,
