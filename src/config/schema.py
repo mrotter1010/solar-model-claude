@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.utils.exceptions import ConfigValidationError
 from src.utils.logger import setup_logger
@@ -77,6 +77,11 @@ class SiteConfig(BaseModel):
     availability_percent: float = Field(ge=0, le=100)
     module_mismatch_percent: float = Field(ge=0, le=100)
     lid_percent: float = Field(ge=0, le=100)
+
+    # Buildable Land Assessment
+    buildable_land_assessment: bool = False
+    kmz_file_path: str | None = None
+    analysis_radius_km: float | None = None
 
     @field_validator("resource_file_path", mode="before")
     @classmethod
@@ -151,6 +156,66 @@ class SiteConfig(BaseModel):
                 f"Module Orientation must be 'portrait' or 'landscape', got '{v}'"
             )
         return v_lower
+
+    @field_validator("buildable_land_assessment", mode="before")
+    @classmethod
+    def validate_buildable_land_assessment(cls, v: object) -> bool:
+        """Coerce buildable land assessment field from CSV to bool.
+
+        Handles None (empty cell), empty string, and string TRUE/FALSE
+        values that pandas may produce when reading CSV columns.
+        """
+        if v is None or v == "":
+            return False
+        if isinstance(v, str):
+            return v.strip().upper() in ("TRUE", "YES", "1")
+        return bool(v)
+
+    @field_validator("analysis_radius_km", mode="before")
+    @classmethod
+    def validate_analysis_radius_km(cls, v: object) -> float | None:
+        """Validate analysis radius is positive when provided.
+
+        Handles None (empty cell) and empty string from CSV input.
+        """
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        v_float = float(v)
+        if v_float <= 0:
+            raise ValueError(
+                f"Analysis Radius (km) must be > 0, got {v_float}"
+            )
+        return v_float
+
+    @field_validator("kmz_file_path", mode="before")
+    @classmethod
+    def validate_kmz_file_path(cls, v: object) -> str | None:
+        """Normalize KMZ file path from CSV input.
+
+        Handles None (empty cell) and empty string from CSV input.
+        """
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return str(v).strip()
+
+    @model_validator(mode="after")
+    def validate_buildability_fields(self) -> "SiteConfig":
+        """Cross-validate buildable land assessment fields.
+
+        When buildable_land_assessment is True, ensures kmz_file_path and
+        analysis_radius_km are not both specified (mutually exclusive).
+        When buildable_land_assessment is False, skips validation entirely.
+        """
+        if not self.buildable_land_assessment:
+            return self
+
+        if self.kmz_file_path is not None and self.analysis_radius_km is not None:
+            raise ValueError(
+                "Cannot specify both KMZ File Path and Analysis Radius. "
+                "Provide one or neither."
+            )
+
+        return self
 
     @property
     def system_capacity_kw(self) -> float:

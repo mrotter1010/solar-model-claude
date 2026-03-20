@@ -43,6 +43,9 @@ COLUMN_MAP: dict[str, str] = {
     "Report": "report",
     "Resource File Path": "resource_file_path",
     "Ground Truth Data File": "ground_truth_data_file",
+    "Buildable Land Assessment": "buildable_land_assessment",
+    "KMZ File Path": "kmz_file_path",
+    "Analysis Radius (km)": "analysis_radius_km",
 }
 
 
