@@ -46,6 +46,14 @@ COLUMN_MAP: dict[str, str] = {
     "Buildable Land Assessment": "buildable_land_assessment",
     "KMZ File Path": "kmz_file_path",
     "Analysis Radius (km)": "analysis_radius_km",
+    "Bill Calculation": "bill_calculation",
+    "Rate File Path": "rate_file_path",
+    "Utility Name": "utility_name",
+    "Tariff Name": "tariff_name",
+    "Load Profile Path": "load_profile_path",
+    "Load Type": "load_type",
+    "Annual Consumption (kWh)": "annual_consumption_kwh",
+    "Peak Demand (kW)": "peak_demand_kw",
 }
 
 

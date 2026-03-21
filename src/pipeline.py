@@ -27,6 +27,7 @@ from src.models.subhourly_correction import (
 )
 from src.models.timeseries_adjustment import apply_correction
 from src.outputs.output_writer import OutputWriter
+from src.rates.bill_runner import run_bill_calculation
 from src.reporting.report_generator import generate_report
 from src.pysam_integration.cec_database import CECDatabase
 from src.pysam_integration.model_configurator import ModelConfigurator
@@ -525,6 +526,41 @@ class SolarModelingPipeline:
                     result.loss_data["subhourly_model_version"] = (
                         correction_metadata["subhourly_model_version"]
                     )
+
+            # Bill calculation (non-fatal: production results are still valid)
+            if site.bill_calculation and result.hourly_data is not None:
+                shading_factor = 1 - site.shading_percent / 100
+                hourly_production_kwh = (
+                    result.hourly_data["ac_gross"] * shading_factor
+                ).tolist()
+                bill_savings = run_bill_calculation(site, hourly_production_kwh)
+                if bill_savings is not None:
+                    summary["bill_savings"] = {
+                        "annual_bill_without_solar": (
+                            bill_savings.bill_without_solar.annual_total
+                        ),
+                        "annual_bill_with_solar": (
+                            bill_savings.bill_with_solar.annual_total
+                        ),
+                        "annual_savings": bill_savings.annual_savings,
+                        "savings_percent": bill_savings.savings_percent,
+                        "avoided_cost_per_kwh": bill_savings.avoided_cost_per_kwh,
+                        "annual_demand_savings": bill_savings.annual_demand_savings,
+                        "monthly_detail": [
+                            {
+                                "month": wi.month,
+                                "bill_without": wo.total,
+                                "bill_with": wi.total,
+                                "savings": s,
+                            }
+                            for wo, wi, s in zip(
+                                bill_savings.bill_without_solar.monthly,
+                                bill_savings.bill_with_solar.monthly,
+                                bill_savings.monthly_savings,
+                            )
+                        ],
+                    }
+
             summaries.append(summary)
 
             # Generate PDF report if requested and loss_data is available

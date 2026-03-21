@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.utils.exceptions import ConfigValidationError
 from src.utils.logger import setup_logger
+from src.rates.load_profile import get_available_building_types
 
 logger = setup_logger(__name__)
 
@@ -82,6 +83,16 @@ class SiteConfig(BaseModel):
     buildable_land_assessment: bool = False
     kmz_file_path: str | None = None
     analysis_radius_km: float | None = None
+
+    # Bill Calculation
+    bill_calculation: bool = False
+    rate_file_path: str | None = None
+    utility_name: str | None = None
+    tariff_name: str | None = None
+    load_profile_path: str | None = None
+    load_type: str | None = None
+    annual_consumption_kwh: float | None = None
+    peak_demand_kw: float | None = None
 
     @field_validator("resource_file_path", mode="before")
     @classmethod
@@ -198,6 +209,76 @@ class SiteConfig(BaseModel):
             return None
         return str(v).strip()
 
+    @field_validator("bill_calculation", mode="before")
+    @classmethod
+    def validate_bill_calculation(cls, v: object) -> bool:
+        """Coerce bill calculation field from CSV to bool.
+
+        Handles None (empty cell), empty string, and string TRUE/FALSE
+        values that pandas may produce when reading CSV columns.
+        """
+        if v is None or v == "":
+            return False
+        if isinstance(v, str):
+            return v.strip().upper() in ("TRUE", "YES", "1")
+        return bool(v)
+
+    @field_validator("rate_file_path", mode="before")
+    @classmethod
+    def validate_rate_file_path(cls, v: object) -> str | None:
+        """Validate rate file path exists when provided."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        path = Path(str(v).strip())
+        if not path.exists():
+            raise ValueError(f"Rate file not found: {path}")
+        return str(path)
+
+    @field_validator("load_profile_path", mode="before")
+    @classmethod
+    def validate_load_profile_path(cls, v: object) -> str | None:
+        """Validate load profile path exists when provided."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        path = Path(str(v).strip())
+        if not path.exists():
+            raise ValueError(f"Load profile file not found: {path}")
+        return str(path)
+
+    @field_validator("annual_consumption_kwh", mode="before")
+    @classmethod
+    def validate_annual_consumption_kwh(cls, v: object) -> float | None:
+        """Validate annual consumption is positive when provided."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        v_float = float(v)
+        if v_float <= 0:
+            raise ValueError(
+                f"Annual Consumption (kWh) must be > 0, got {v_float}"
+            )
+        return v_float
+
+    @field_validator("peak_demand_kw", mode="before")
+    @classmethod
+    def validate_peak_demand_kw(cls, v: object) -> float | None:
+        """Validate peak demand is positive when provided."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        v_float = float(v)
+        if v_float <= 0:
+            raise ValueError(
+                f"Peak Demand (kW) must be > 0, got {v_float}"
+            )
+        return v_float
+
+    @field_validator("utility_name", "tariff_name", "load_type", mode="before")
+    @classmethod
+    def validate_optional_string_fields(cls, v: object) -> str | None:
+        """Normalize optional string fields from CSV (empty/NaN → None)."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return str(v).strip()
+
     @model_validator(mode="after")
     def validate_buildability_fields(self) -> "SiteConfig":
         """Cross-validate buildable land assessment fields.
@@ -214,6 +295,80 @@ class SiteConfig(BaseModel):
                 "Cannot specify both KMZ File Path and Analysis Radius. "
                 "Provide one or neither."
             )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_bill_fields(self) -> "SiteConfig":
+        """Cross-validate bill calculation fields.
+
+        When bill_calculation is True, validates rate source and load source
+        mutual exclusivity. When False, skips all checks.
+        """
+        if not self.bill_calculation:
+            return self
+
+        # --- Rate source validation ---
+        has_rate_file = self.rate_file_path is not None
+        has_openei = self.utility_name is not None or self.tariff_name is not None
+
+        if has_rate_file and has_openei:
+            raise ValueError(
+                "Cannot specify both Rate File Path and Utility Name/Tariff Name. "
+                "Use one rate source."
+            )
+
+        if not has_rate_file and not has_openei:
+            raise ValueError(
+                "No rate source specified. Provide either Rate File Path "
+                "or Utility Name + Tariff Name."
+            )
+
+        if has_openei:
+            if self.utility_name is None or self.tariff_name is None:
+                raise ValueError(
+                    "Both Utility Name and Tariff Name are required "
+                    "when using OpenEI rate lookup."
+                )
+
+        # --- Load source validation ---
+        has_load_file = self.load_profile_path is not None
+        has_typical = self.load_type is not None
+
+        if has_load_file and has_typical:
+            raise ValueError(
+                "Cannot specify both Load Profile Path and Load Type. "
+                "Use one load source."
+            )
+
+        if not has_load_file and not has_typical:
+            raise ValueError(
+                "No load source specified. Provide either Load Profile Path "
+                "or Load Type + Annual Consumption (kWh)."
+            )
+
+        if has_typical:
+            available = get_available_building_types()
+            if self.load_type not in available:
+                raise ValueError(
+                    f"Invalid Load Type '{self.load_type}'. "
+                    f"Available types: {available}"
+                )
+            if self.annual_consumption_kwh is None:
+                raise ValueError(
+                    "Annual Consumption (kWh) is required when using Load Type."
+                )
+
+        if has_load_file:
+            if (
+                self.annual_consumption_kwh is not None
+                or self.peak_demand_kw is not None
+                or self.load_type is not None
+            ):
+                raise ValueError(
+                    "Cannot specify Load Type, Annual Consumption, or Peak Demand "
+                    "when Load Profile Path is provided."
+                )
 
         return self
 

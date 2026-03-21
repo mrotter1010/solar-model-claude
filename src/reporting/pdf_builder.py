@@ -266,12 +266,16 @@ def build_pdf(
     narrative: dict,
     monthly_chart_path: Path,
     waterfall_chart_path: Path,
+    bill_summary: Optional[dict] = None,
+    bill_chart_path: Optional[Path] = None,
+    load_solar_chart_path: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Build a 3-page solar production analysis PDF report.
+    """Build a solar production analysis PDF report (3 or 4 pages).
 
     Page 1: Cover with title, subtitle, date, and site summary tables.
     Page 2: Narrative sections (overview, resource, production) and monthly chart.
     Page 3: Loss analysis narrative and waterfall chart.
+    Page 4 (optional): Bill savings analysis with comparison chart.
 
     Args:
         output_path: File path for the output PDF.
@@ -279,6 +283,9 @@ def build_pdf(
         narrative: Output of generate_narrative() with 4 paragraph strings.
         monthly_chart_path: Path to monthly production chart PNG.
         waterfall_chart_path: Path to loss waterfall chart PNG.
+        bill_summary: Optional dict from extract_bill_summary() for page 4.
+        bill_chart_path: Optional path to monthly bill comparison chart PNG.
+        load_solar_chart_path: Optional path to load vs solar chart PNG.
 
     Returns:
         The output_path on success, or None on failure.
@@ -291,6 +298,13 @@ def build_pdf(
         if not waterfall_chart_path.exists():
             logger.error(f"Waterfall chart not found: {waterfall_chart_path}")
             return None
+
+        has_bill_page = (
+            bill_summary is not None
+            and bill_chart_path is not None
+            and bill_chart_path.exists()
+        )
+        total_pages = 4 if has_bill_page else 3
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -346,6 +360,73 @@ def build_pdf(
         # Embed waterfall chart
         story.append(Image(str(waterfall_chart_path), width=chart_width, height=chart_height))
 
+        # === PAGE 4: Bill Savings Analysis (optional) ===
+        if has_bill_page:
+            story.append(PageBreak())
+            story.append(Paragraph("Bill Savings Analysis", styles["section_header"]))
+            story.append(Spacer(1, 0.1 * inch))
+
+            # Summary table
+            usable_width = PAGE_WIDTH - 2 * MARGIN
+            col_widths = [usable_width * 0.55, usable_width * 0.45]
+
+            bill_rows = [
+                ["Bill Savings Summary", ""],
+                [
+                    "Annual Bill Without Solar",
+                    f"${bill_summary['annual_bill_without_solar']:,.2f}",
+                ],
+                [
+                    "Annual Bill With Solar",
+                    f"${bill_summary['annual_bill_with_solar']:,.2f}",
+                ],
+                [
+                    "Annual Savings",
+                    f"${bill_summary['annual_savings']:,.2f}",
+                ],
+                [
+                    "Savings Percentage",
+                    f"{bill_summary['savings_percent']:.1f}%",
+                ],
+                [
+                    "Avoided Cost per kWh",
+                    f"${bill_summary['avoided_cost_per_kwh']:.4f}",
+                ],
+            ]
+
+            bill_table = Table(bill_rows, colWidths=col_widths)
+            bill_table.setStyle(TableStyle([
+                ("FONTNAME", (0, 0), (-1, 0), FONT_HEADER),
+                ("FONTSIZE", (0, 0), (-1, -1), SIZE_TABLE),
+                ("FONTNAME", (0, 1), (-1, -1), FONT_BODY),
+                ("BACKGROUND", (0, 0), (-1, 0), LIGHT_GREY),
+                ("GRID", (0, 0), (-1, -1), 0.5, MED_GREY),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(bill_table)
+            story.append(Spacer(1, 0.2 * inch))
+
+            # Monthly bill comparison chart
+            story.append(Image(
+                str(bill_chart_path), width=chart_width, height=chart_height
+            ))
+
+            # Load vs solar chart (if available)
+            if (
+                load_solar_chart_path is not None
+                and load_solar_chart_path.exists()
+            ):
+                story.append(Spacer(1, 0.2 * inch))
+                story.append(Image(
+                    str(load_solar_chart_path),
+                    width=chart_width,
+                    height=chart_height,
+                ))
+
         # Build PDF with footer callback
         doc = SimpleDocTemplate(
             str(output_path),
@@ -357,7 +438,7 @@ def build_pdf(
         )
 
         def on_page(canvas_obj: object, doc_obj: object) -> None:
-            _add_footer(canvas_obj, doc_obj, site_name)
+            _add_footer(canvas_obj, doc_obj, site_name, total_pages=total_pages)
 
         doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
 
