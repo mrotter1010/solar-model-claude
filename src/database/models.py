@@ -162,6 +162,16 @@ class RunInput(Base):
     module_mismatch_pct: Mapped[float] = mapped_column(Float, nullable=False)
     lid_pct: Mapped[float] = mapped_column(Float, nullable=False)
 
+    # Bill calculation parameters
+    bill_calculation: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rate_file_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    utility_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    tariff_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    load_profile_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    load_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    annual_consumption_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    peak_demand_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     run: Mapped["Run"] = relationship(back_populates="inputs")
 
     def __repr__(self) -> str:
@@ -205,6 +215,9 @@ class RunResult(Base):
     monthly_energy: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     monthly_snow_loss: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     loss_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Bill savings (JSON)
+    bill_savings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # File paths
     timeseries_file_path: Mapped[str | None] = mapped_column(String, nullable=True)

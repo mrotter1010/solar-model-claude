@@ -198,6 +198,14 @@ def save_run_to_db(
             availability_pct=site_config.availability_percent,
             module_mismatch_pct=site_config.module_mismatch_percent,
             lid_pct=site_config.lid_percent,
+            bill_calculation=site_config.bill_calculation,
+            rate_file_path=str(site_config.rate_file_path) if site_config.rate_file_path else None,
+            utility_name=site_config.utility_name,
+            tariff_name=site_config.tariff_name,
+            load_profile_path=str(site_config.load_profile_path) if site_config.load_profile_path else None,
+            load_type=site_config.load_type,
+            annual_consumption_kwh=site_config.annual_consumption_kwh,
+            peak_demand_kw=site_config.peak_demand_kw,
         )
         session.add(run_input)
 
@@ -222,6 +230,7 @@ def save_run_to_db(
             monthly_energy=loss_data.get("monthly_energy"),
             monthly_snow_loss=loss_data.get("monthly_snow_loss"),
             loss_data=loss_data or None,
+            bill_savings=summary.get("bill_savings"),
             timeseries_file_path=str(timeseries_path) if timeseries_path else None,
             report_file_path=str(report_path) if report_path else None,
             climate_file_path=str(climate_path) if climate_path else None,
