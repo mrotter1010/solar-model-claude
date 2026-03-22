@@ -33,9 +33,17 @@ class SiteConfig(BaseModel):
     data_source: str = "nsrdb"
     solcast_metadata: dict | None = None
 
-    # BESS (store but don't validate - for future use)
-    bess_dispatch_required: float | None = None
+    # BESS
+    bess_dispatch_required: bool = False
     bess_optimization_required: float | None = None
+    bess_power_mw: float | None = None
+    bess_duration_hr: float | None = None
+    bess_rte_percent: float = 88.0
+    bess_min_soc_percent: float = 10.0
+    bess_max_soc_percent: float = 90.0
+    bess_strategy: str = "global"
+    bess_installed_cost_per_kwh: float = 275.0
+    bess_cycles_warranty: int = 5000
 
     # System Capacity
     dc_size_mw: float = Field(gt=0)
@@ -126,6 +134,58 @@ class SiteConfig(BaseModel):
         if isinstance(v, str):
             return v.strip().upper() in ("TRUE", "YES", "1")
         return bool(v)
+
+    @field_validator("bess_dispatch_required", mode="before")
+    @classmethod
+    def validate_bess_dispatch_required(cls, v: object) -> bool:
+        """Coerce BESS dispatch required field from CSV to bool.
+
+        Handles None (empty cell), empty string, and string TRUE/FALSE
+        values that pandas may produce when reading CSV columns.
+        """
+        if v is None or v == "":
+            return False
+        if isinstance(v, str):
+            return v.strip().upper() in ("TRUE", "YES", "1")
+        return bool(v)
+
+    @field_validator("bess_power_mw", "bess_duration_hr", mode="before")
+    @classmethod
+    def validate_optional_bess_float(cls, v: object) -> float | None:
+        """Coerce empty/NaN BESS float fields to None."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return float(v)
+
+    @field_validator(
+        "bess_rte_percent",
+        "bess_min_soc_percent",
+        "bess_max_soc_percent",
+        "bess_installed_cost_per_kwh",
+        mode="before",
+    )
+    @classmethod
+    def validate_bess_float_defaults(cls, v: object, info: object) -> float:
+        """Coerce None/empty to field default for BESS numeric fields."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return cls.model_fields[info.field_name].default
+        return float(v)
+
+    @field_validator("bess_strategy", mode="before")
+    @classmethod
+    def validate_bess_strategy(cls, v: object) -> str:
+        """Coerce None/empty BESS strategy to default."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return "global"
+        return str(v).strip().lower()
+
+    @field_validator("bess_cycles_warranty", mode="before")
+    @classmethod
+    def validate_bess_cycles_warranty(cls, v: object) -> int:
+        """Coerce None/empty BESS cycles warranty to default."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return 5000
+        return int(v)
 
     @field_validator("ground_truth_data_file", mode="before")
     @classmethod
@@ -369,6 +429,66 @@ class SiteConfig(BaseModel):
                     "Cannot specify Load Type, Annual Consumption, or Peak Demand "
                     "when Load Profile Path is provided."
                 )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_bess_fields(self) -> "SiteConfig":
+        """Cross-validate BESS dispatch fields.
+
+        When bess_dispatch_required is True, validates that all required
+        BESS parameters are provided and consistent. When False, skips
+        all BESS validation.
+        """
+        if not self.bess_dispatch_required:
+            return self
+
+        if self.bess_power_mw is None or self.bess_power_mw <= 0:
+            raise ValueError(
+                "BESS Power (MW) must be > 0 when BESS Dispatch Required is True."
+            )
+
+        if self.bess_duration_hr is None or self.bess_duration_hr <= 0:
+            raise ValueError(
+                "BESS Duration (hr) must be > 0 when BESS Dispatch Required is True."
+            )
+
+        allowed_strategies = {"peak_shaving", "tou_arbitrage", "global"}
+        if self.bess_strategy not in allowed_strategies:
+            raise ValueError(
+                f"BESS Strategy must be one of {sorted(allowed_strategies)}, "
+                f"got '{self.bess_strategy}'."
+            )
+
+        if self.bess_min_soc_percent >= self.bess_max_soc_percent:
+            raise ValueError(
+                f"BESS Min SOC ({self.bess_min_soc_percent}%) must be less than "
+                f"BESS Max SOC ({self.bess_max_soc_percent}%)."
+            )
+
+        if not (50 <= self.bess_rte_percent <= 100):
+            raise ValueError(
+                f"BESS RTE must be between 50% and 100%, "
+                f"got {self.bess_rte_percent}%."
+            )
+
+        if self.bess_installed_cost_per_kwh <= 0:
+            raise ValueError(
+                "BESS Installed Cost ($/kWh) must be > 0 when "
+                "BESS Dispatch Required is True."
+            )
+
+        if self.bess_cycles_warranty <= 0:
+            raise ValueError(
+                "BESS Cycles Warranty must be > 0 when "
+                "BESS Dispatch Required is True."
+            )
+
+        if not self.bill_calculation:
+            raise ValueError(
+                "Bill Calculation must be True when BESS Dispatch Required is True. "
+                "BESS dispatch depends on rate structure and load profile."
+            )
 
         return self
 

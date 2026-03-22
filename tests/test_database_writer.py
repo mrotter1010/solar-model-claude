@@ -517,7 +517,7 @@ class TestRecreateRunInput:
         assert result["LID(%)"] == pytest.approx(1.0)
 
         # Optional BESS fields
-        assert result["BESS Dispatch Required"] is None
+        assert result["BESS Dispatch Required"] is False
         assert result["BESS Optimization Required"] is None
 
     def test_nonexistent_run_id_raises_error(self) -> None:

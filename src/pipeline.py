@@ -27,6 +27,8 @@ from src.models.subhourly_correction import (
 )
 from src.models.timeseries_adjustment import apply_correction
 from src.outputs.output_writer import OutputWriter
+from src.bess.dispatch_runner import run_bess_dispatch
+from src.rates.tou_mapper import get_month_ranges
 from src.rates.bill_runner import run_bill_calculation
 from src.reporting.report_generator import generate_report
 from src.pysam_integration.cec_database import CECDatabase
@@ -528,12 +530,16 @@ class SolarModelingPipeline:
                     )
 
             # Bill calculation (non-fatal: production results are still valid)
+            bill_calc_result = None
             if site.bill_calculation and result.hourly_data is not None:
                 shading_factor = 1 - site.shading_percent / 100
                 hourly_production_kwh = (
                     result.hourly_data["ac_gross"] * shading_factor
                 ).tolist()
-                bill_savings = run_bill_calculation(site, hourly_production_kwh)
+                bill_calc_result = run_bill_calculation(site, hourly_production_kwh)
+                bill_savings = (
+                    bill_calc_result.bill_savings if bill_calc_result else None
+                )
                 if bill_savings is not None:
                     summary["bill_savings"] = {
                         "annual_bill_without_solar": (
@@ -561,6 +567,80 @@ class SolarModelingPipeline:
                         ],
                     }
 
+            # BESS dispatch optimization
+            if site.bess_dispatch_required and bill_calc_result is not None:
+                try:
+                    dispatch_result, bess_comparison = run_bess_dispatch(
+                        site_config=site,
+                        production_kwh=hourly_production_kwh,
+                        rate_schedule=bill_calc_result.rate_schedule,
+                        load_profile=bill_calc_result.load_profile,
+                        solar_only_bill=bill_calc_result.bill_savings.bill_with_solar,
+                    )
+                    summary["bess_dispatch"] = {
+                        "bess_power_mw": site.bess_power_mw,
+                        "bess_duration_hr": site.bess_duration_hr,
+                        "bess_capacity_kwh": dispatch_result.config.capacity_kwh,
+                        "bess_strategy": site.bess_strategy,
+                        "solar_only_annual_bill": bess_comparison.solar_only_annual_bill,
+                        "solar_plus_bess_annual_bill": bess_comparison.solar_plus_bess_annual_bill,
+                        "bess_incremental_savings": bess_comparison.bess_incremental_savings,
+                        "bess_demand_savings": bess_comparison.bess_demand_savings,
+                        "bess_energy_savings": bess_comparison.bess_energy_savings,
+                        "annual_cycles": dispatch_result.metrics.annual_cycles,
+                        "annual_throughput_kwh": dispatch_result.metrics.annual_throughput_kwh,
+                        "average_daily_cycles": dispatch_result.metrics.average_daily_cycles,
+                        "capacity_utilization_pct": dispatch_result.metrics.capacity_utilization_pct,
+                        "total_curtailed_kwh": dispatch_result.metrics.total_curtailed_kwh,
+                        "estimated_annual_degradation_pct": dispatch_result.metrics.estimated_annual_degradation_pct,
+                        "monthly_solver_status": dispatch_result.monthly_solve_status,
+                        "heatmap_data": dispatch_result.heatmap_data,
+                    }
+
+                    # Compute dispatch profile for the most active month
+                    _month_names = [
+                        "January", "February", "March", "April",
+                        "May", "June", "July", "August",
+                        "September", "October", "November", "December",
+                    ]
+                    hm = dispatch_result.heatmap_data
+                    month_activity = [
+                        sum(abs(v) for v in row) for row in hm
+                    ]
+                    peak_month = month_activity.index(max(month_activity))
+                    month_ranges = get_month_ranges()
+                    m_start, m_end = month_ranges[peak_month]
+                    n_days = (m_end - m_start) // 24
+                    load_kwh = bill_calc_result.load_profile.hourly_kwh
+
+                    avg_load = [0.0] * 24
+                    avg_solar = [0.0] * 24
+                    avg_battery = [0.0] * 24
+                    for day in range(n_days):
+                        for h in range(24):
+                            idx = m_start + day * 24 + h
+                            avg_load[h] += load_kwh[idx]
+                            avg_solar[h] += hourly_production_kwh[idx]
+                            hd = dispatch_result.hourly_dispatch[idx]
+                            avg_battery[h] += hd.discharge_kw - hd.charge_kw
+                    avg_load = [v / n_days for v in avg_load]
+                    avg_solar = [v / n_days for v in avg_solar]
+                    avg_battery = [v / n_days for v in avg_battery]
+
+                    summary["bess_dispatch"]["dispatch_profile_month"] = (
+                        _month_names[peak_month]
+                    )
+                    summary["bess_dispatch"]["dispatch_profile_load"] = avg_load
+                    summary["bess_dispatch"]["dispatch_profile_solar"] = avg_solar
+                    summary["bess_dispatch"]["dispatch_profile_battery"] = avg_battery
+
+                except Exception as e:
+                    logger.warning(f"BESS dispatch failed for {site.run_name}: {e}")
+            elif site.bess_dispatch_required and bill_calc_result is None:
+                logger.warning(
+                    f"BESS dispatch requires bill calculation — skipping for {site.run_name}"
+                )
+
             summaries.append(summary)
 
             # Generate PDF report if requested and loss_data is available
@@ -572,6 +652,7 @@ class SolarModelingPipeline:
                         site_config=site.model_dump(),
                         loss_data=result.loss_data,
                         output_dir=reports_dir,
+                        summary=summary,
                     )
                     if report_path is not None:
                         report_files.append(report_path)

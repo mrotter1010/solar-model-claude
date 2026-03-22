@@ -198,6 +198,38 @@ def save_run_to_db(
             availability_pct=site_config.availability_percent,
             module_mismatch_pct=site_config.module_mismatch_percent,
             lid_pct=site_config.lid_percent,
+            bess_power_mw=(
+                site_config.bess_power_mw
+                if site_config.bess_dispatch_required else None
+            ),
+            bess_duration_hr=(
+                site_config.bess_duration_hr
+                if site_config.bess_dispatch_required else None
+            ),
+            bess_rte_percent=(
+                site_config.bess_rte_percent
+                if site_config.bess_dispatch_required else None
+            ),
+            bess_min_soc_percent=(
+                site_config.bess_min_soc_percent
+                if site_config.bess_dispatch_required else None
+            ),
+            bess_max_soc_percent=(
+                site_config.bess_max_soc_percent
+                if site_config.bess_dispatch_required else None
+            ),
+            bess_strategy=(
+                site_config.bess_strategy
+                if site_config.bess_dispatch_required else None
+            ),
+            bess_installed_cost_per_kwh=(
+                site_config.bess_installed_cost_per_kwh
+                if site_config.bess_dispatch_required else None
+            ),
+            bess_cycles_warranty=(
+                site_config.bess_cycles_warranty
+                if site_config.bess_dispatch_required else None
+            ),
             bill_calculation=site_config.bill_calculation,
             rate_file_path=str(site_config.rate_file_path) if site_config.rate_file_path else None,
             utility_name=site_config.utility_name,
@@ -231,6 +263,7 @@ def save_run_to_db(
             monthly_snow_loss=loss_data.get("monthly_snow_loss"),
             loss_data=loss_data or None,
             bill_savings=summary.get("bill_savings"),
+            bess_dispatch=summary.get("bess_dispatch"),
             timeseries_file_path=str(timeseries_path) if timeseries_path else None,
             report_file_path=str(report_path) if report_path else None,
             climate_file_path=str(climate_path) if climate_path else None,

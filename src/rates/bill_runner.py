@@ -1,10 +1,11 @@
 """Bill calculation integration: connects rate engine to the pipeline."""
 
 from pathlib import Path
+from typing import NamedTuple
 
 from src.config.schema import SiteConfig
 from src.rates.load_profile import load_customer_profile, load_typical_profile
-from src.rates.models import BillSavings
+from src.rates.models import BillSavings, LoadProfile, RateSchedule
 from src.rates.openei_client import fetch_and_translate
 from src.rates.rate_parser import load_rate_file
 from src.rates.savings_analyzer import analyze_savings
@@ -13,10 +14,24 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
+class BillCalculationResult(NamedTuple):
+    """Result of a bill calculation run, bundling savings with inputs.
+
+    Args:
+        bill_savings: Computed savings comparing with/without solar.
+        rate_schedule: The resolved rate schedule used for calculation.
+        load_profile: The resolved load profile used for calculation.
+    """
+
+    bill_savings: BillSavings
+    rate_schedule: RateSchedule
+    load_profile: LoadProfile
+
+
 def run_bill_calculation(
     site_config: SiteConfig,
     hourly_production_kwh: list[float],
-) -> BillSavings | None:
+) -> BillCalculationResult | None:
     """Run bill calculation for a site if enabled.
 
     Loads the rate schedule and load profile based on site configuration,
@@ -29,7 +44,8 @@ def run_bill_calculation(
             (post-shading, net AC output).
 
     Returns:
-        BillSavings with monthly breakdown and annual totals, or None.
+        BillCalculationResult with savings, rate schedule, and load profile,
+        or None if disabled or on error.
     """
     if not site_config.bill_calculation:
         return None
@@ -102,7 +118,11 @@ def run_bill_calculation(
             savings.savings_percent,
         )
 
-        return savings
+        return BillCalculationResult(
+            bill_savings=savings,
+            rate_schedule=rate,
+            load_profile=load,
+        )
 
     except Exception as exc:
         logger.error(

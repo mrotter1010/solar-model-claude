@@ -10,6 +10,10 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from src.bess.report_section import (
+    generate_dispatch_profile_chart,
+    generate_heatmap_chart,
+)
 from src.reporting.chart_builder import (
     generate_loss_waterfall_chart,
     generate_monthly_production_chart,
@@ -30,6 +34,7 @@ def generate_report(
     site_config: dict,
     loss_data: dict,
     output_dir: Path,
+    summary: Optional[dict] = None,
 ) -> Optional[Path]:
     """Generate a complete PDF report from site config and simulation results.
 
@@ -46,6 +51,8 @@ def generate_report(
         loss_data: Dict from SimulationResult.loss_data containing
             annual energy totals, loss percentages, and monthly arrays.
         output_dir: Directory for the output PDF file.
+        summary: Optional pipeline summary dict. When present, enables
+            BESS dispatch page (if summary["bess_dispatch"] exists).
 
     Returns:
         Path to the generated PDF on success, or None on failure.
@@ -98,12 +105,40 @@ def generate_report(
         safe_name = site_name.replace(" ", "_").replace("/", "_")
         pdf_path = output_dir / f"{safe_name}_report.pdf"
 
+        # Generate BESS charts if dispatch data is available
+        bess_dispatch = None
+        bess_heatmap_path = None
+        bess_dispatch_chart_path = None
+
+        if summary is not None and "bess_dispatch" in summary:
+            bess_dispatch = summary["bess_dispatch"]
+            hm = bess_dispatch.get("heatmap_data")
+            if hm is not None:
+                bess_heatmap_path = temp_path / "bess_heatmap.png"
+                generate_heatmap_chart(hm, bess_heatmap_path)
+
+            dp_load = bess_dispatch.get("dispatch_profile_load")
+            dp_solar = bess_dispatch.get("dispatch_profile_solar")
+            dp_battery = bess_dispatch.get("dispatch_profile_battery")
+            dp_month = bess_dispatch.get("dispatch_profile_month", "July")
+            if dp_load and dp_solar and dp_battery:
+                bess_dispatch_chart_path = temp_path / "bess_dispatch_profile.png"
+                generate_dispatch_profile_chart(
+                    dp_load, dp_solar, dp_battery, dp_month,
+                    bess_dispatch_chart_path,
+                )
+
+            logger.info("Generated BESS charts")
+
         result = build_pdf(
             output_path=pdf_path,
             site_summary=site_summary,
             narrative=narrative,
             monthly_chart_path=monthly_chart_path,
             waterfall_chart_path=waterfall_chart_path,
+            bess_dispatch=bess_dispatch,
+            bess_heatmap_path=bess_heatmap_path,
+            bess_dispatch_chart_path=bess_dispatch_chart_path,
         )
 
         if result is None:

@@ -130,7 +130,7 @@ class RunInput(Base):
     # Site parameters
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
-    bess_dispatch_required: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_dispatch_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     bess_optimization_required: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # System sizing
@@ -161,6 +161,16 @@ class RunInput(Base):
     availability_pct: Mapped[float] = mapped_column(Float, nullable=False)
     module_mismatch_pct: Mapped[float] = mapped_column(Float, nullable=False)
     lid_pct: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # BESS input parameters
+    bess_power_mw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_duration_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_rte_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_min_soc_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_max_soc_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_strategy: Mapped[str | None] = mapped_column(String, nullable=True)
+    bess_installed_cost_per_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_cycles_warranty: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Bill calculation parameters
     bill_calculation: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -218,6 +228,9 @@ class RunResult(Base):
 
     # Bill savings (JSON)
     bill_savings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # BESS dispatch results (JSON)
+    bess_dispatch: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # File paths
     timeseries_file_path: Mapped[str | None] = mapped_column(String, nullable=True)

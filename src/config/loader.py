@@ -54,6 +54,14 @@ COLUMN_MAP: dict[str, str] = {
     "Load Type": "load_type",
     "Annual Consumption (kWh)": "annual_consumption_kwh",
     "Peak Demand (kW)": "peak_demand_kw",
+    "BESS Power (MW)": "bess_power_mw",
+    "BESS Duration (hr)": "bess_duration_hr",
+    "BESS RTE (%)": "bess_rte_percent",
+    "BESS Min SOC (%)": "bess_min_soc_percent",
+    "BESS Max SOC (%)": "bess_max_soc_percent",
+    "BESS Strategy": "bess_strategy",
+    "BESS Installed Cost ($/kWh)": "bess_installed_cost_per_kwh",
+    "BESS Cycles Warranty": "bess_cycles_warranty",
 }
 
 

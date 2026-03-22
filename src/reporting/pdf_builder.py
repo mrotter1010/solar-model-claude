@@ -269,13 +269,17 @@ def build_pdf(
     bill_summary: Optional[dict] = None,
     bill_chart_path: Optional[Path] = None,
     load_solar_chart_path: Optional[Path] = None,
+    bess_dispatch: Optional[dict] = None,
+    bess_heatmap_path: Optional[Path] = None,
+    bess_dispatch_chart_path: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Build a solar production analysis PDF report (3 or 4 pages).
+    """Build a solar production analysis PDF report (3-5 pages).
 
     Page 1: Cover with title, subtitle, date, and site summary tables.
     Page 2: Narrative sections (overview, resource, production) and monthly chart.
     Page 3: Loss analysis narrative and waterfall chart.
     Page 4 (optional): Bill savings analysis with comparison chart.
+    Page 5 (optional): Battery storage analysis with heatmap and dispatch profile.
 
     Args:
         output_path: File path for the output PDF.
@@ -286,6 +290,9 @@ def build_pdf(
         bill_summary: Optional dict from extract_bill_summary() for page 4.
         bill_chart_path: Optional path to monthly bill comparison chart PNG.
         load_solar_chart_path: Optional path to load vs solar chart PNG.
+        bess_dispatch: Optional dict from summary["bess_dispatch"] for page 5.
+        bess_heatmap_path: Optional path to dispatch heatmap chart PNG.
+        bess_dispatch_chart_path: Optional path to dispatch profile chart PNG.
 
     Returns:
         The output_path on success, or None on failure.
@@ -304,7 +311,12 @@ def build_pdf(
             and bill_chart_path is not None
             and bill_chart_path.exists()
         )
-        total_pages = 4 if has_bill_page else 3
+        has_bess_page = (
+            bess_dispatch is not None
+            and bess_heatmap_path is not None
+            and bess_heatmap_path.exists()
+        )
+        total_pages = 3 + int(has_bill_page) + int(has_bess_page)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -425,6 +437,108 @@ def build_pdf(
                     str(load_solar_chart_path),
                     width=chart_width,
                     height=chart_height,
+                ))
+
+        # === PAGE 5: Battery Storage Analysis (optional) ===
+        if has_bess_page:
+            story.append(PageBreak())
+            story.append(Paragraph("Battery Storage Analysis", styles["section_header"]))
+            story.append(Spacer(1, 0.1 * inch))
+
+            # Summary table
+            usable_width = PAGE_WIDTH - 2 * MARGIN
+            bess_col_widths = [usable_width * 0.55, usable_width * 0.45]
+
+            bd = bess_dispatch
+            bess_rows = [
+                ["Battery Storage Summary", ""],
+                [
+                    "Battery Size",
+                    f"{bd['bess_power_mw']} MW / {bd['bess_duration_hr']} hr "
+                    f"({bd['bess_capacity_kwh']:,.0f} kWh)",
+                ],
+                ["Strategy", str(bd["bess_strategy"])],
+                [
+                    "Solar-Only Annual Bill",
+                    f"${bd['solar_only_annual_bill']:,.0f}",
+                ],
+                [
+                    "Solar+BESS Annual Bill",
+                    f"${bd['solar_plus_bess_annual_bill']:,.0f}",
+                ],
+                [
+                    "BESS Incremental Savings",
+                    f"${bd['bess_incremental_savings']:,.0f}",
+                ],
+                [
+                    "Demand Savings",
+                    f"${bd['bess_demand_savings']:,.0f}",
+                ],
+                [
+                    "Energy Savings",
+                    f"${bd['bess_energy_savings']:,.0f}",
+                ],
+                [
+                    "Annual Cycles",
+                    f"{bd['annual_cycles']:.1f}",
+                ],
+                [
+                    "Capacity Utilization",
+                    f"{bd['capacity_utilization_pct']:.1f}%",
+                ],
+                [
+                    "Est. Annual Degradation",
+                    f"{bd['estimated_annual_degradation_pct']:.2f}%",
+                ],
+                [
+                    "Curtailed Energy",
+                    f"{bd['total_curtailed_kwh']:,.0f} kWh",
+                ],
+            ]
+
+            bess_style = TableStyle([
+                ("FONTNAME", (0, 0), (-1, 0), FONT_HEADER),
+                ("FONTSIZE", (0, 0), (-1, -1), SIZE_TABLE),
+                ("FONTNAME", (0, 1), (-1, -1), FONT_BODY),
+                ("BACKGROUND", (0, 0), (-1, 0), LIGHT_GREY),
+                ("GRID", (0, 0), (-1, -1), 0.5, MED_GREY),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ])
+            for i in range(2, len(bess_rows), 2):
+                bess_style.add(
+                    "BACKGROUND", (0, i), (-1, i),
+                    colors.Color(0.97, 0.97, 0.97),
+                )
+
+            bess_table = Table(bess_rows, colWidths=bess_col_widths)
+            bess_table.setStyle(bess_style)
+
+            story.append(bess_table)
+            story.append(Spacer(1, 0.1 * inch))
+
+            # Heatmap chart
+            chart_width = PAGE_WIDTH - 2 * MARGIN
+            bess_chart_height = chart_width * 0.35
+            story.append(Image(
+                str(bess_heatmap_path),
+                width=chart_width,
+                height=bess_chart_height,
+            ))
+
+            # Dispatch profile chart (optional, fits on same page)
+            if (
+                bess_dispatch_chart_path is not None
+                and bess_dispatch_chart_path.exists()
+            ):
+                story.append(Spacer(1, 0.1 * inch))
+                story.append(Image(
+                    str(bess_dispatch_chart_path),
+                    width=chart_width,
+                    height=bess_chart_height,
                 ))
 
         # Build PDF with footer callback
