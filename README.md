@@ -1,6 +1,6 @@
 # Solar Production Model
 
-Python-based solar production modeling tool using NREL's PySAM detailed photovoltaic model for utility-scale solar projects. Accepts a multi-row CSV of site configurations, fetches weather data, runs physics-based simulations, applies trained ML corrections, and produces per-site 8760 hourly timeseries CSVs, PDF reports, and database records.
+Python-based solar production modeling tool using NREL's PySAM detailed photovoltaic model for utility-scale solar projects. Accepts a multi-row CSV of site configurations, fetches weather data, runs physics-based simulations, applies trained ML corrections, and produces per-site 8760 hourly timeseries CSVs, PDF reports, and database records. Includes optional bill savings analysis (TOU rate schedules), battery dispatch optimization (PuLP LP solver), and buildable land assessment (NLCD/3DEP).
 
 ## Pipeline Overview
 
@@ -12,6 +12,9 @@ CSV Input
   → PySAM detailed PV simulation (CEC Performance Model)
   → Subhourly clipping correction (ML, v2)
   → Shading haircut
+  → Bill calculation (TOU energy + demand charges, savings analysis)
+  → BESS dispatch optimization (LP-based, PuLP/CBC, if enabled)
+  → Buildable land assessment (NLCD land cover + 3DEP slope, if enabled)
   → Output: 8760 timeseries CSV + PDF report + database write
 ```
 
@@ -31,11 +34,17 @@ CSV Input
 
 7. **Output generation** — Per-site 8760 hourly timeseries CSV (AC production, POA irradiance, cell temperature, DC/AC power, inverter efficiency). Summary metrics JSON. Optional PDF report with system summary table, monthly production bar chart, waterfall loss chart, and methodology narrative.
 
-8. **Database storage** — Run inputs, results, and metrics stored in PostgreSQL/TimescaleDB. Both raw (pre-correction) and adjusted annual energy preserved for audit trail.
+8. **Bill calculation** — Loads rate schedule (JSON file or OpenEI API) and customer load profile (typical DOE building type or custom CSV). Computes monthly bills with and without solar using TOU energy charges, demand charges, and flat demand charges. Produces savings analysis with avoided cost metrics.
+
+9. **BESS dispatch optimization** — LP-based battery dispatch using PuLP/CBC solver. Runs 12 monthly optimizations with SOC carryover. Three strategies: `global` (minimize total bill), `peak_shaving` (reduce demand charges), `tou_arbitrage` (shift energy between TOU periods). Computes bill comparison (solar-only vs solar+BESS), battery metrics (cycles, utilization, degradation), and 12×24 heatmap data.
+
+10. **Buildable land assessment** — NLCD land cover classification, 3DEP slope analysis, setback buffers. Supports KMZ polygon boundaries or circular analysis radius. Produces buildable acreage estimates by land cover type.
+
+11. **Database storage** — Run inputs, results, and metrics stored in PostgreSQL/TimescaleDB. Both raw (pre-correction) and adjusted annual energy preserved for audit trail.
 
 ## Input CSV Format
 
-The CSV accepts up to 31 columns. Column mapping is defined in `src/config/loader.py`.
+The CSV accepts up to 50 columns. Column mapping is defined in `src/config/loader.py`.
 
 | # | Column | Type | Required | Description |
 |---|--------|------|----------|-------------|
@@ -44,8 +53,8 @@ The CSV accepts up to 31 columns. Column mapping is defined in `src/config/loade
 | 3 | Customer | string | yes | Customer/project name |
 | 4 | Latitude | float | yes | Site latitude (-90 to 90) |
 | 5 | Longitude | float | yes | Site longitude (-180 to 180) |
-| 6 | BESS Dispatch Required | float | no | Battery storage parameter (stored, not used in simulation) |
-| 7 | BESS Optimization Required | float | no | Battery storage parameter (stored, not used in simulation) |
+| 6 | BESS Dispatch Required | bool | no | `TRUE` to run BESS dispatch optimization |
+| 7 | BESS Optimization Required | float | no | Reserved for M14b sizing optimization |
 | 8 | DC Size (MW) | float | yes | DC system capacity in MW |
 | 9 | AC Installed (MW) | float | yes | AC inverter capacity in MW |
 | 10 | AC POI (MW) | float | yes | Point of interconnection limit in MW |
@@ -70,6 +79,25 @@ The CSV accepts up to 31 columns. Column mapping is defined in `src/config/loade
 | 29 | Report | bool | no | `TRUE` to generate PDF report for this row |
 | 30 | Resource File Path | path | no | Path to Solcast TMY SAM CSV file. If set, NSRDB is skipped. |
 | 31 | Ground Truth Data File | path | no | Path to ground truth irradiance CSV for site-specific bias correction |
+| 32 | Buildable Land Assessment | bool | no | `TRUE` to run NLCD/slope buildability analysis |
+| 33 | KMZ File Path | path | no | Path to KMZ polygon file for site boundary |
+| 34 | Analysis Radius (km) | float | no | Circular analysis radius if no KMZ provided (default 1.5 km) |
+| 35 | Bill Calculation | bool | no | `TRUE` to run bill savings analysis |
+| 36 | Rate File Path | path | no | Path to rate schedule JSON file |
+| 37 | Utility Name | string | no | OpenEI utility name (alternative to rate file) |
+| 38 | Tariff Name | string | no | OpenEI tariff name (used with Utility Name) |
+| 39 | Load Profile Path | path | no | Path to custom hourly load profile CSV |
+| 40 | Load Type | string | no | DOE building type for typical load profile (e.g., `MediumOffice`) |
+| 41 | Annual Consumption (kWh) | float | no | Annual load to scale typical profile |
+| 42 | Peak Demand (kW) | float | no | Peak demand for load profile scaling |
+| 43 | BESS Power (MW) | float | no | Battery inverter power rating |
+| 44 | BESS Duration (hr) | float | no | Battery storage duration in hours |
+| 45 | BESS RTE (%) | float | no | Round-trip efficiency (default 88%) |
+| 46 | BESS Min SOC (%) | float | no | Minimum state of charge (default 10%) |
+| 47 | BESS Max SOC (%) | float | no | Maximum state of charge (default 90%) |
+| 48 | BESS Strategy | string | no | Dispatch strategy: `global`, `peak_shaving`, `tou_arbitrage` (default `global`) |
+| 49 | BESS Installed Cost ($/kWh) | float | no | Installed cost per kWh for degradation penalty (default $275) |
+| 50 | BESS Cycles Warranty | int | no | Warranted cycle count for degradation cost (default 5000) |
 
 ## Climate Data Sources
 
@@ -142,24 +170,26 @@ Six weather features are computed from the hourly weather file using Spencer (19
 Per-site hourly CSV with columns including AC production, POA irradiance, cell temperature, DC/AC power, and inverter efficiency.
 
 ### PDF Report
-Customer-facing PDF generated by reportlab, containing:
-- Site summary table (location, system design, equipment)
-- Monthly production bar chart
-- Waterfall loss chart (DC nominal → net AC, showing each loss step including subhourly clipping)
-- Methodology narrative (auto-generated, includes bias correction and subhourly correction details)
+Customer-facing PDF generated by reportlab (3-5 pages, conditional):
+- **Page 1:** Site summary table (location, system design, equipment)
+- **Page 2:** Methodology narrative + monthly production bar chart
+- **Page 3:** Loss analysis narrative + waterfall chart (DC nominal → net AC)
+- **Page 4 (if bill calc enabled):** Bill savings summary table + monthly comparison chart + load vs solar chart
+- **Page 5 (if BESS enabled):** Battery storage summary table + 12×24 dispatch heatmap + average day dispatch profile chart
 
 ### Database Records
-PostgreSQL/TimescaleDB with 5 tables managed via Alembic migrations:
+PostgreSQL/TimescaleDB with 6 tables managed via Alembic migrations:
 
 | Table | Purpose |
 |-------|---------|
 | `customers` | Customer registry |
 | `sites` | Site locations (linked to customer) |
 | `runs` | Simulation run tracking (UUID PK, status, weather year, git hash) |
-| `run_inputs` | Full input parameters for each run (system design, losses) |
-| `run_results` | Results: annual energy, capacity factors, specific yield, performance ratio, bias/subhourly correction metadata, monthly data (JSON), file paths |
+| `run_inputs` | Full input parameters for each run (system design, losses, BESS config, rate params) |
+| `run_results` | Results: annual energy, capacity factors, specific yield, performance ratio, bias/subhourly correction metadata, monthly data (JSON), `bill_savings` (JSON), `bess_dispatch` (JSON), file paths |
+| `bill_calculation_runs` | Rate schedule metadata per bill calculation (utility, tariff, load type) |
 
-Both `raw_annual_energy_mwh` (pre-correction) and `annual_energy_mwh` (post-correction) are stored for audit purposes.
+Both `raw_annual_energy_mwh` (pre-correction) and `annual_energy_mwh` (post-correction) are stored for audit purposes. Migration scripts in `scripts/migrate_*.sql` for schema upgrades.
 
 ## Setup
 
@@ -234,8 +264,8 @@ src/
 ├── main.py                          # CLI entry point
 ├── pipeline.py                      # SolarModelingPipeline orchestrator
 ├── config/
-│   ├── loader.py                    # CSV → SiteConfig parsing, column mapping
-│   └── schema.py                    # Pydantic SiteConfig model (31 fields)
+│   ├── loader.py                    # CSV → SiteConfig parsing, 50-column mapping
+│   └── schema.py                    # Pydantic SiteConfig model (50+ fields)
 ├── climate/
 │   ├── nsrdb_client.py              # NSRDB GOES Aggregated v4.0.0 API client
 │   ├── solcast_parser.py            # Solcast TMY SAM CSV validator
@@ -259,18 +289,52 @@ src/
 ├── outputs/
 │   └── output_writer.py             # 8760 CSV + error JSON generation
 ├── reporting/
-│   ├── report_generator.py          # PDF orchestrator
+│   ├── report_generator.py          # PDF orchestrator (solar + bill + BESS)
 │   ├── data_extractor.py            # Loss waterfall, monthly data, narrative text
 │   ├── chart_builder.py             # Matplotlib charts (monthly bar, waterfall)
-│   └── pdf_builder.py               # ReportLab PDF assembly
+│   └── pdf_builder.py               # ReportLab PDF assembly (3-5 pages)
+├── rates/
+│   ├── bill_calculator.py           # Monthly bill computation (energy + demand charges)
+│   ├── bill_runner.py               # Pipeline integration, rate/load resolution
+│   ├── savings_analyzer.py          # With/without solar comparison, avoided cost
+│   ├── rate_parser.py               # JSON rate schedule loader + validator
+│   ├── rate_builder.py              # Programmatic rate schedule construction
+│   ├── rate_builder_cli.py          # Interactive CLI for building rate JSONs
+│   ├── openei_client.py             # OpenEI API client for utility rate lookup
+│   ├── load_profile.py              # DOE typical load profiles + custom CSV loader
+│   ├── tou_mapper.py                # TOU period → 8760 hour mapping
+│   ├── models.py                    # RateSchedule, LoadProfile, BillSavings models
+│   ├── report_section.py            # Bill savings charts for PDF report
+│   └── db.py                        # BillCalculationRun database table
+├── bess/
+│   ├── optimizer.py                 # LP dispatch optimizer (PuLP/CBC)
+│   ├── dispatch_runner.py           # Monthly solve orchestrator, bill comparison
+│   ├── metrics.py                   # Battery metrics (cycles, utilization, degradation)
+│   ├── models.py                    # BESSConfig, HourlyDispatch, DispatchResult
+│   └── report_section.py            # 12×24 heatmap + dispatch profile charts
+├── buildability/
+│   ├── analyzer.py                  # Buildability pipeline orchestrator
+│   ├── nlcd_client.py               # NLCD land cover raster fetcher
+│   ├── dem_client.py                # 3DEP digital elevation model fetcher
+│   ├── slope_analyzer.py            # Slope computation from DEM
+│   ├── exclusion_engine.py          # Land cover + slope exclusion rules
+│   ├── polygon_parser.py            # KMZ/KML boundary file parser
+│   ├── models.py                    # BuildabilityResult, LandCoverStats
+│   ├── report_section.py            # Buildability charts for PDF report
+│   ├── visualizations.py            # Map visualizations
+│   └── db.py                        # Buildability database table
 ├── database/
-│   ├── models.py                    # SQLAlchemy ORM (5 tables)
+│   ├── models.py                    # SQLAlchemy ORM (6 tables, BESS columns)
 │   ├── connection.py                # Database connection management
-│   ├── writer.py                    # Save run results to DB
+│   ├── writer.py                    # Save run results to DB (incl. bill/BESS)
 │   └── queries.py                   # Query helpers (recreate_run_input)
 └── utils/
     ├── exceptions.py                # Custom exception hierarchy
     └── logger.py                    # Logging configuration
+
+scripts/
+├── migrate_rate_engine.sql          # DB migration: rate engine tables + columns
+└── migrate_bess_dispatch.sql        # DB migration: BESS columns + type changes
 
 docs/
 ├── CEC Modules.csv                  # NREL CEC module parameter database
@@ -282,9 +346,9 @@ research/                            # Research scripts (not part of production 
 ├── m9_bias_correction/              # M9: NSRDB bias correction model training
 └── m11_subhourly/                   # M11: Subhourly model v2 (1-min ground stations)
 
-tests/                               # 544 tests
+tests/                               # 870 tests
 ├── conftest.py                      # Shared pytest fixtures
-├── fixtures/                        # Sample CSV files
+├── fixtures/                        # Sample CSV, rate JSONs, load profiles
 └── test_*.py                        # Test modules mirroring src/ structure
 ```
 
@@ -308,7 +372,7 @@ pytest tests/ --cov=src --cov-report=html
 open htmlcov/index.html
 ```
 
-544 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, and end-to-end smoke tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
+870 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, buildability analysis, and end-to-end smoke tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
 
 ## Database
 
@@ -363,12 +427,15 @@ row = recreate_run_input("your-run-uuid-here")
 | M8 | Subhourly Correction v1 | Done | GB model trained on 5-min NSRDB satellite data (45 sites, 3,240 paired simulations) |
 | M9 | NSRDB Bias Correction | Done | GHI/DNI bias correction trained on 20 ground stations (SURFRAD/SOLRAD/MIDC, 2018-2023) |
 | M11 | Subhourly Correction v2 | Done | Retrained on 1-min ground station data (19 stations, 760 paired simulations). Global R²=0.874 |
+| M12 | Benchmarking | Done | Parity validation at reference sites vs SolarGIS/SolarAnywhere/PVWatts/SAM + model-vs-measured ground truth |
+| — | Buildable Land Assessment | Done | NLCD land cover + 3DEP slope analysis, KMZ polygon support, exclusion engine, setback buffers |
+| — | Rate Engine & Bill Savings | Done | TOU rate schedules (JSON + OpenEI API), DOE typical load profiles, energy + demand + flat demand charges, monthly savings analysis, PDF report page |
+| M14a | BESS Dispatch | Done | LP-based battery dispatch (PuLP/CBC), 3 strategies, SOC carryover, bill comparison, 12×24 heatmap, PDF report page, DB persistence |
 
 ### Roadmap
 
 | # | Name | Description |
 |---|------|-------------|
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
-| M12 | Benchmarking | Parity validation at 5-7 reference sites vs SolarGIS/SolarAnywhere/PVWatts/SAM + model-vs-measured ground truth using NREL PVDAQ |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
-| M14+ | BESS Dispatch & Optimization | Battery storage dispatch modeling for demand charge management and TOU arbitrage |
+| M14b | BESS Sizing Optimization | Optimal battery sizing (power/duration), NEM/export credit modeling, ITC solar-only charging constraint, detailed cycle-based degradation |
