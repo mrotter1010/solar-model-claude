@@ -11,7 +11,7 @@ from src.bess.models import (
 )
 from src.bess.optimizer import solve_month
 from src.config.schema import SiteConfig
-from src.rates.bill_calculator import calculate_bill
+from src.rates.bill_calculator import calculate_bill, get_export_rate_for_hour
 from src.rates.models import BillResult, LoadProfile, RateSchedule
 from src.rates.tou_mapper import get_month_ranges, map_hours_to_periods
 from src.utils.logger import setup_logger
@@ -57,6 +57,7 @@ def run_bess_dispatch(
         rate_schedule.flatdemandstructure is not None
         and rate_schedule.flatdemandmonths is not None
     )
+    nem_active = rate_schedule.net_metering.mode != "none"
 
     all_hourly: list[HourlyDispatch] = []
     monthly_statuses: list[str] = []
@@ -104,6 +105,16 @@ def run_bess_dispatch(
                 rate_schedule.flatdemandstructure[flat_period][0].rate
             )
 
+        # --- NEM export rates per hour ---
+        # Build per-hour export rates using hour_of_year indices (not month-local).
+        # When NEM is inactive, pass None so the optimizer skips export logic.
+        month_export_rates: list[float] | None = None
+        if nem_active:
+            month_export_rates = [
+                get_export_rate_for_hour(start + h_idx, rate_schedule)
+                for h_idx in range(n_hours)
+            ]
+
         # --- Solve this month ---
         result = solve_month(
             load_kw=month_load,
@@ -114,6 +125,9 @@ def run_bess_dispatch(
             demand_rates=demand_rates,
             flat_demand_rate=flat_demand_rate,
             initial_soc_kwh=current_soc,
+            nem_export_rates=month_export_rates,
+            solar_only_charging=site_config.bess_solar_only_charging,
+            grid_only_charging=site_config.bess_grid_only_charging,
         )
 
         logger.info(
@@ -127,6 +141,7 @@ def run_bess_dispatch(
         # --- Build hourly dispatch records ---
         # Clamp non-negative fields to 0 to handle LP solver floating-point
         # noise (e.g., -3e-13 for variables bounded at 0).
+        has_export = nem_active and len(result.export_kw) == n_hours
         for h_idx in range(n_hours):
             all_hourly.append(
                 HourlyDispatch(
@@ -136,6 +151,10 @@ def run_bess_dispatch(
                     soc_kwh=max(0.0, result.soc_kwh[h_idx]),
                     net_load_kw=result.net_load_kw[h_idx],
                     curtailed_kw=max(0.0, result.curtailed_kw[h_idx]),
+                    export_kw=(
+                        max(0.0, result.export_kw[h_idx])
+                        if has_export else 0.0
+                    ),
                 )
             )
 
@@ -146,17 +165,33 @@ def run_bess_dispatch(
     )
 
     # --- Compute metrics and heatmap ---
-    dispatch_result.metrics = compute_battery_metrics(dispatch_result)
+    if site_config.bess_solar_only_charging:
+        charging_source = "solar_only"
+    elif site_config.bess_grid_only_charging:
+        charging_source = "grid_only"
+    else:
+        charging_source = "any"
+    dispatch_result.metrics = compute_battery_metrics(
+        dispatch_result, charging_source=charging_source
+    )
     dispatch_result.heatmap_data = compute_heatmap_data(dispatch_result)
 
     if solar_only_bill is None:
         return dispatch_result
 
     # --- Build adjusted production and compute solar+BESS bill ---
-    adjusted_production = [
-        production_kwh[t] + all_hourly[t].discharge_kw - all_hourly[t].charge_kw
-        for t in range(8760)
-    ]
+    # Grid-only mode: bill comparison is load-only vs load+BESS (no solar).
+    # Standard mode: adjusted_production includes solar + battery net.
+    if site_config.bess_grid_only_charging:
+        adjusted_production = [
+            all_hourly[t].discharge_kw - all_hourly[t].charge_kw
+            for t in range(8760)
+        ]
+    else:
+        adjusted_production = [
+            production_kwh[t] + all_hourly[t].discharge_kw - all_hourly[t].charge_kw
+            for t in range(8760)
+        ]
     solar_plus_bess_bill = calculate_bill(
         load_kwh=load_profile.hourly_kwh,
         production_kwh=adjusted_production,
@@ -179,6 +214,10 @@ def run_bess_dispatch(
             solar_only_bill.annual_energy_charges
             - solar_plus_bess_bill.annual_energy_charges
         ),
+        solar_only_export_kwh=solar_only_bill.annual_export_kwh,
+        solar_only_export_credits=solar_only_bill.annual_export_credits,
+        solar_plus_bess_export_kwh=solar_plus_bess_bill.annual_export_kwh,
+        solar_plus_bess_export_credits=solar_plus_bess_bill.annual_export_credits,
     )
 
     logger.info(

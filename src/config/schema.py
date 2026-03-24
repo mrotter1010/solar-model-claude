@@ -44,6 +44,8 @@ class SiteConfig(BaseModel):
     bess_strategy: str = "global"
     bess_installed_cost_per_kwh: float = 275.0
     bess_cycles_warranty: int = 5000
+    bess_solar_only_charging: bool = False
+    bess_grid_only_charging: bool = False
 
     # System Capacity
     dc_size_mw: float = Field(gt=0)
@@ -186,6 +188,34 @@ class SiteConfig(BaseModel):
         if v is None or (isinstance(v, str) and v.strip() == ""):
             return 5000
         return int(v)
+
+    @field_validator("bess_solar_only_charging", mode="before")
+    @classmethod
+    def validate_bess_solar_only_charging(cls, v: object) -> bool:
+        """Coerce BESS solar only charging field from CSV to bool.
+
+        Handles None (empty cell), empty string, and string TRUE/FALSE
+        values that pandas may produce when reading CSV columns.
+        """
+        if v is None or v == "":
+            return False
+        if isinstance(v, str):
+            return v.strip().upper() in ("TRUE", "YES", "1")
+        return bool(v)
+
+    @field_validator("bess_grid_only_charging", mode="before")
+    @classmethod
+    def validate_bess_grid_only_charging(cls, v: object) -> bool:
+        """Coerce BESS grid only charging field from CSV to bool.
+
+        Handles None (empty cell), empty string, and string TRUE/FALSE
+        values that pandas may produce when reading CSV columns.
+        """
+        if v is None or v == "":
+            return False
+        if isinstance(v, str):
+            return v.strip().upper() in ("TRUE", "YES", "1")
+        return bool(v)
 
     @field_validator("ground_truth_data_file", mode="before")
     @classmethod
@@ -440,6 +470,26 @@ class SiteConfig(BaseModel):
         BESS parameters are provided and consistent. When False, skips
         all BESS validation.
         """
+        # Charging mode mutual exclusivity (independent of dispatch_required)
+        if self.bess_solar_only_charging and self.bess_grid_only_charging:
+            raise ValueError(
+                "bess_solar_only_charging and bess_grid_only_charging "
+                "are mutually exclusive"
+            )
+
+        # Charging modes require dispatch to be enabled
+        if self.bess_solar_only_charging and not self.bess_dispatch_required:
+            raise ValueError(
+                "BESS Dispatch Required must be True when "
+                "BESS Solar Only Charging is True."
+            )
+
+        if self.bess_grid_only_charging and not self.bess_dispatch_required:
+            raise ValueError(
+                "BESS Dispatch Required must be True when "
+                "BESS Grid Only Charging is True."
+            )
+
         if not self.bess_dispatch_required:
             return self
 

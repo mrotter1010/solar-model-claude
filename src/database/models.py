@@ -171,6 +171,8 @@ class RunInput(Base):
     bess_strategy: Mapped[str | None] = mapped_column(String, nullable=True)
     bess_installed_cost_per_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
     bess_cycles_warranty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bess_solar_only_charging: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+    bess_grid_only_charging: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
 
     # Bill calculation parameters
     bill_calculation: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

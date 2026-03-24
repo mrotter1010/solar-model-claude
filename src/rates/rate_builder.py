@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from src.rates.models import FixedCharges, RateSchedule, RateTier
+from src.rates.models import FixedCharges, NetMeteringConfig, RateSchedule, RateTier
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -305,6 +305,44 @@ def build_rate_schedule(
         len(seasons),
     )
     return rate
+
+
+def set_net_metering(
+    rate: RateSchedule,
+    *,
+    mode: str = "none",
+    export_rate: float | None = None,
+    export_schedule: list[list[int]] | None = None,
+    export_weekend_schedule: list[list[int]] | None = None,
+    export_rate_structure: list[list[RateTier]] | None = None,
+    true_up_rate: float = 0.0,
+) -> RateSchedule:
+    """Set net metering configuration on a rate schedule.
+
+    Creates a NetMeteringConfig from the provided kwargs and returns
+    a copy of the rate schedule with the updated config.
+
+    Args:
+        rate: Existing rate schedule to update.
+        mode: NEM mode — "none", "flat_rate", "match_import", or "detailed".
+        export_rate: Export credit rate in $/kWh (flat_rate mode).
+        export_schedule: 12x24 weekday export period matrix (detailed mode).
+        export_weekend_schedule: 12x24 weekend export period matrix (detailed mode).
+        export_rate_structure: Export rate tiers per period (detailed mode).
+        true_up_rate: Year-end bank cashout rate in $/kWh.
+
+    Returns:
+        New RateSchedule with updated net_metering config.
+    """
+    nem = NetMeteringConfig(
+        mode=mode,
+        export_rate=export_rate,
+        export_schedule=export_schedule,
+        export_weekend_schedule=export_weekend_schedule,
+        export_rate_structure=export_rate_structure,
+        true_up_rate=true_up_rate,
+    )
+    return rate.model_copy(update={"net_metering": nem})
 
 
 def save_rate_file(rate: RateSchedule, path: Path) -> Path:

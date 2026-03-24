@@ -121,11 +121,13 @@ def generate_report(
             dp_solar = bess_dispatch.get("dispatch_profile_solar")
             dp_battery = bess_dispatch.get("dispatch_profile_battery")
             dp_month = bess_dispatch.get("dispatch_profile_month", "July")
+            dp_export = bess_dispatch.get("dispatch_profile_export")
             if dp_load and dp_solar and dp_battery:
                 bess_dispatch_chart_path = temp_path / "bess_dispatch_profile.png"
                 generate_dispatch_profile_chart(
                     dp_load, dp_solar, dp_battery, dp_month,
                     bess_dispatch_chart_path,
+                    export_kw=dp_export,
                 )
 
             logger.info("Generated BESS charts")

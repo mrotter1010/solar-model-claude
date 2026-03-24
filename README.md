@@ -12,8 +12,8 @@ CSV Input
   → PySAM detailed PV simulation (CEC Performance Model)
   → Subhourly clipping correction (ML, v2)
   → Shading haircut
-  → Bill calculation (TOU energy + demand charges, savings analysis)
-  → BESS dispatch optimization (LP-based, PuLP/CBC, if enabled)
+  → Bill calculation (TOU energy + demand charges, NEM export credits, savings analysis)
+  → BESS dispatch optimization (LP-based, PuLP/CBC; NEM/ITC/grid-only modes, if enabled)
   → Buildable land assessment (NLCD land cover + 3DEP slope, if enabled)
   → Output: 8760 timeseries CSV + PDF report + database write
 ```
@@ -34,9 +34,9 @@ CSV Input
 
 7. **Output generation** — Per-site 8760 hourly timeseries CSV (AC production, POA irradiance, cell temperature, DC/AC power, inverter efficiency). Summary metrics JSON. Optional PDF report with system summary table, monthly production bar chart, waterfall loss chart, and methodology narrative.
 
-8. **Bill calculation** — Loads rate schedule (JSON file or OpenEI API) and customer load profile (typical DOE building type or custom CSV). Computes monthly bills with and without solar using TOU energy charges, demand charges, and flat demand charges. Produces savings analysis with avoided cost metrics.
+8. **Bill calculation** — Loads rate schedule (JSON file or OpenEI API) and customer load profile (typical DOE building type or custom CSV). Computes monthly bills with and without solar using TOU energy charges, demand charges, and flat demand charges. Supports net energy metering (NEM) with three export credit modes: `flat_rate` (fixed $/kWh), `match_import` (credit at import TOU rate), and `detailed` (custom export schedule). NEM credits are banked monthly and reconciled at annual true-up with a configurable reduced rate. Produces savings analysis with avoided cost metrics.
 
-9. **BESS dispatch optimization** — LP-based battery dispatch using PuLP/CBC solver. Runs 12 monthly optimizations with SOC carryover. Three strategies: `global` (minimize total bill), `peak_shaving` (reduce demand charges), `tou_arbitrage` (shift energy between TOU periods). Computes bill comparison (solar-only vs solar+BESS), battery metrics (cycles, utilization, degradation), and 12×24 heatmap data.
+9. **BESS dispatch optimization** — LP-based battery dispatch using PuLP/CBC solver. Runs 12 monthly optimizations with SOC carryover. Three strategies: `global` (minimize total bill), `peak_shaving` (reduce demand charges), `tou_arbitrage` (shift energy between TOU periods). NEM-aware LP includes export revenue in the objective and grid import/export decomposition. ITC solar-only charging constrains charge power to excess solar per hour. Grid-only standalone mode zeroes production for pure grid arbitrage. NEM credit banking accumulates monthly credits with annual true-up at a reduced rate. Computes bill comparison (solar-only vs solar+BESS), battery metrics (cycles, utilization, degradation), export tracking, and 12×24 heatmap data.
 
 10. **Buildable land assessment** — NLCD land cover classification, 3DEP slope analysis, setback buffers. Supports KMZ polygon boundaries or circular analysis radius. Produces buildable acreage estimates by land cover type.
 
@@ -44,7 +44,7 @@ CSV Input
 
 ## Input CSV Format
 
-The CSV accepts up to 50 columns. Column mapping is defined in `src/config/loader.py`.
+The CSV accepts up to 52 columns. Column mapping is defined in `src/config/loader.py`.
 
 | # | Column | Type | Required | Description |
 |---|--------|------|----------|-------------|
@@ -98,6 +98,8 @@ The CSV accepts up to 50 columns. Column mapping is defined in `src/config/loade
 | 48 | BESS Strategy | string | no | Dispatch strategy: `global`, `peak_shaving`, `tou_arbitrage` (default `global`) |
 | 49 | BESS Installed Cost ($/kWh) | float | no | Installed cost per kWh for degradation penalty (default $275) |
 | 50 | BESS Cycles Warranty | int | no | Warranted cycle count for degradation cost (default 5000) |
+| 51 | BESS Solar Only Charging | bool | no | `TRUE` to restrict battery charging to excess solar only (ITC compliance) |
+| 52 | BESS Grid Only Charging | bool | no | `TRUE` for standalone BESS (grid charging only, no solar in dispatch) |
 
 ## Climate Data Sources
 
@@ -334,7 +336,8 @@ src/
 
 scripts/
 ├── migrate_rate_engine.sql          # DB migration: rate engine tables + columns
-└── migrate_bess_dispatch.sql        # DB migration: BESS columns + type changes
+├── migrate_bess_dispatch.sql        # DB migration: BESS columns + type changes
+└── migrate_m14b.sql                 # DB migration: NEM/ITC/grid-only columns + export fields
 
 docs/
 ├── CEC Modules.csv                  # NREL CEC module parameter database
@@ -346,10 +349,15 @@ research/                            # Research scripts (not part of production 
 ├── m9_bias_correction/              # M9: NSRDB bias correction model training
 └── m11_subhourly/                   # M11: Subhourly model v2 (1-min ground stations)
 
-tests/                               # 870 tests
+tests/                               # 1090 tests
 ├── conftest.py                      # Shared pytest fixtures
 ├── fixtures/                        # Sample CSV, rate JSONs, load profiles
-└── test_*.py                        # Test modules mirroring src/ structure
+├── test_*.py                        # Test modules mirroring src/ structure
+├── test_bess/                       # BESS dispatch, optimizer, metrics tests (M14a/M14b)
+├── test_rates/                      # NEM billing, models, CLI tests (M14b)
+├── test_config/                     # BESS charging mode validation tests (M14b)
+├── test_database/                   # DB persistence tests (M14b)
+└── test_integration/                # End-to-end integration tests (M14b)
 ```
 
 ## Testing
@@ -372,7 +380,7 @@ pytest tests/ --cov=src --cov-report=html
 open htmlcov/index.html
 ```
 
-870 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, buildability analysis, and end-to-end smoke tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
+1090 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, buildability analysis, and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
 
 ## Database
 
@@ -431,6 +439,7 @@ row = recreate_run_input("your-run-uuid-here")
 | — | Buildable Land Assessment | Done | NLCD land cover + 3DEP slope analysis, KMZ polygon support, exclusion engine, setback buffers |
 | — | Rate Engine & Bill Savings | Done | TOU rate schedules (JSON + OpenEI API), DOE typical load profiles, energy + demand + flat demand charges, monthly savings analysis, PDF report page |
 | M14a | BESS Dispatch | Done | LP-based battery dispatch (PuLP/CBC), 3 strategies, SOC carryover, bill comparison, 12×24 heatmap, PDF report page, DB persistence |
+| M14b | BESS Enhancements | Done | NEM export credits (flat/match_import/detailed, monthly banking, annual true-up), ITC solar-only charging constraint, grid-only standalone BESS, LP export revenue optimization, dynamic PDF page counting |
 
 ### Roadmap
 
@@ -438,4 +447,6 @@ row = recreate_run_input("your-run-uuid-here")
 |---|------|-------------|
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
-| M14b | BESS Sizing Optimization | Optimal battery sizing (power/duration), NEM/export credit modeling, ITC solar-only charging constraint, detailed cycle-based degradation |
+| M14c | BESS Sizing Optimization | Optimal battery sizing via brute force sweep, LCOE ranking |
+| M14d | Detailed Degradation | Rainflow counting, calendar aging, C-rate effects |
+| M14e | FTM/Wholesale Dispatch | LMP-based dispatch via gridstatus, wholesale revenue stacking |

@@ -62,6 +62,8 @@ COLUMN_MAP: dict[str, str] = {
     "BESS Strategy": "bess_strategy",
     "BESS Installed Cost ($/kWh)": "bess_installed_cost_per_kwh",
     "BESS Cycles Warranty": "bess_cycles_warranty",
+    "BESS Solar Only Charging": "bess_solar_only_charging",
+    "BESS Grid Only Charging": "bess_grid_only_charging",
 }
 
 

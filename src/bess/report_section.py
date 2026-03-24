@@ -68,17 +68,95 @@ def generate_heatmap_chart(
     return output_path
 
 
+def build_bess_summary_rows(bess_dispatch: dict) -> list[list[str]]:
+    """Build summary table rows for the BESS report section.
+
+    Returns a list of [label, value] pairs for the PDF summary table.
+    Includes charging source, export rows (when export > 0), and all
+    standard BESS metrics.
+
+    Args:
+        bess_dispatch: Dict from summary["bess_dispatch"] containing BESS
+            metrics and bill comparison data.
+
+    Returns:
+        List of [label, value] string pairs for table rows.
+    """
+    bd = bess_dispatch
+    rows = [
+        ["Battery Storage Summary", ""],
+        [
+            "Battery Size",
+            f"{bd['bess_power_mw']} MW / {bd['bess_duration_hr']} hr "
+            f"({bd['bess_capacity_kwh']:,.0f} kWh)",
+        ],
+        ["Strategy", str(bd["bess_strategy"])],
+    ]
+
+    # Charging source (only show when not default "any")
+    charging_source = bd.get("charging_source", "any")
+    if charging_source != "any":
+        label_map = {
+            "solar_only": "Solar Only",
+            "grid_only": "Grid Only",
+        }
+        rows.append([
+            "Charging Source",
+            label_map.get(charging_source, charging_source),
+        ])
+
+    rows.extend([
+        [
+            "Solar-Only Annual Bill",
+            f"${bd['solar_only_annual_bill']:,.0f}",
+        ],
+        [
+            "Solar+BESS Annual Bill",
+            f"${bd['solar_plus_bess_annual_bill']:,.0f}",
+        ],
+        [
+            "BESS Incremental Savings",
+            f"${bd['bess_incremental_savings']:,.0f}",
+        ],
+        ["Demand Savings", f"${bd['bess_demand_savings']:,.0f}"],
+        ["Energy Savings", f"${bd['bess_energy_savings']:,.0f}"],
+        ["Annual Cycles", f"{bd['annual_cycles']:.1f}"],
+        [
+            "Capacity Utilization",
+            f"{bd['capacity_utilization_pct']:.1f}%",
+        ],
+        [
+            "Est. Annual Degradation",
+            f"{bd['estimated_annual_degradation_pct']:.2f}%",
+        ],
+        [
+            "Curtailed Energy",
+            f"{bd['total_curtailed_kwh']:,.0f} kWh",
+        ],
+    ])
+
+    # Export rows (only shown when export is present)
+    total_export = bd.get("total_export_kwh", 0.0)
+    if total_export > 0:
+        rows.append(["Total Export", f"{total_export:,.0f} kWh"])
+        rows.append(["Export Hours", f"{bd.get('total_export_hours', 0):,}"])
+
+    return rows
+
+
 def generate_dispatch_profile_chart(
     load_kwh: list[float],
     solar_kwh: list[float],
     battery_kw: list[float],
     month_name: str,
     output_path: Path,
+    export_kw: list[float] | None = None,
 ) -> Path:
     """Generate a 24-hour average day dispatch profile chart.
 
     Shows load, solar production, net load, and battery charge/discharge
-    for a representative average day in the selected month.
+    for a representative average day in the selected month. When export
+    data is provided, export is shown as a filled region below zero.
 
     Args:
         load_kwh: 24-hour average load profile (kW).
@@ -87,6 +165,8 @@ def generate_dispatch_profile_chart(
             Positive = discharge, negative = charge.
         month_name: Name of the month for the chart title.
         output_path: Path to save the PNG chart.
+        export_kw: Optional 24-hour average export power (kW).
+            Plotted as negative (below x-axis) when provided.
 
     Returns:
         Path to the saved chart PNG.
@@ -122,6 +202,14 @@ def generate_dispatch_profile_chart(
         hours, 0, neg_battery,
         alpha=0.3, color="#3498db", label="Charge",
     )
+
+    # Export fill: orange below zero (only when export data is present)
+    if export_kw is not None and any(v > 0.1 for v in export_kw):
+        neg_export = [-v for v in export_kw]
+        ax.fill_between(
+            hours, 0, neg_export,
+            alpha=0.3, color="#e67e22", label="Export",
+        )
 
     ax.set_xlabel("Hour of Day")
     ax.set_ylabel("kW")

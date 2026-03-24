@@ -25,6 +25,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from src.bess.report_section import build_bess_summary_rows
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -244,20 +245,22 @@ def _build_site_summary_tables(
     return [config_table, Spacer(1, 16), results_table]
 
 
-def _add_footer(canvas: object, doc: object, site_name: str, total_pages: int = 3) -> None:
-    """Draw page footer with site name and page number.
+def _add_footer(
+    canvas_obj: object, doc_obj: object, site_name: str, total_pages: int,
+) -> None:
+    """Draw page footer with site name and dynamic page number.
 
     Args:
-        canvas: reportlab canvas object.
-        doc: reportlab document object.
+        canvas_obj: reportlab canvas object.
+        doc_obj: reportlab document object (provides current page number).
         site_name: Site name for footer text.
-        total_pages: Total number of pages in the document.
+        total_pages: Actual total number of pages in the document.
     """
-    canvas.saveState()
-    canvas.setFont(FONT_BODY, SIZE_FOOTER)
-    footer_text = f"{site_name} | Page {doc.page} of {total_pages}"
-    canvas.drawRightString(PAGE_WIDTH - MARGIN, 0.5 * inch, footer_text)
-    canvas.restoreState()
+    canvas_obj.saveState()
+    canvas_obj.setFont(FONT_BODY, SIZE_FOOTER)
+    footer_text = f"{site_name} | Page {doc_obj.page} of {total_pages}"
+    canvas_obj.drawRightString(PAGE_WIDTH - MARGIN, 0.5 * inch, footer_text)
+    canvas_obj.restoreState()
 
 
 def build_pdf(
@@ -316,7 +319,6 @@ def build_pdf(
             and bess_heatmap_path is not None
             and bess_heatmap_path.exists()
         )
-        total_pages = 3 + int(has_bill_page) + int(has_bess_page)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -449,52 +451,7 @@ def build_pdf(
             usable_width = PAGE_WIDTH - 2 * MARGIN
             bess_col_widths = [usable_width * 0.55, usable_width * 0.45]
 
-            bd = bess_dispatch
-            bess_rows = [
-                ["Battery Storage Summary", ""],
-                [
-                    "Battery Size",
-                    f"{bd['bess_power_mw']} MW / {bd['bess_duration_hr']} hr "
-                    f"({bd['bess_capacity_kwh']:,.0f} kWh)",
-                ],
-                ["Strategy", str(bd["bess_strategy"])],
-                [
-                    "Solar-Only Annual Bill",
-                    f"${bd['solar_only_annual_bill']:,.0f}",
-                ],
-                [
-                    "Solar+BESS Annual Bill",
-                    f"${bd['solar_plus_bess_annual_bill']:,.0f}",
-                ],
-                [
-                    "BESS Incremental Savings",
-                    f"${bd['bess_incremental_savings']:,.0f}",
-                ],
-                [
-                    "Demand Savings",
-                    f"${bd['bess_demand_savings']:,.0f}",
-                ],
-                [
-                    "Energy Savings",
-                    f"${bd['bess_energy_savings']:,.0f}",
-                ],
-                [
-                    "Annual Cycles",
-                    f"{bd['annual_cycles']:.1f}",
-                ],
-                [
-                    "Capacity Utilization",
-                    f"{bd['capacity_utilization_pct']:.1f}%",
-                ],
-                [
-                    "Est. Annual Degradation",
-                    f"{bd['estimated_annual_degradation_pct']:.2f}%",
-                ],
-                [
-                    "Curtailed Energy",
-                    f"{bd['total_curtailed_kwh']:,.0f} kWh",
-                ],
-            ]
+            bess_rows = build_bess_summary_rows(bess_dispatch)
 
             bess_style = TableStyle([
                 ("FONTNAME", (0, 0), (-1, 0), FONT_HEADER),
@@ -541,9 +498,14 @@ def build_pdf(
                     height=bess_chart_height,
                 ))
 
-        # Build PDF with footer callback
-        doc = SimpleDocTemplate(
-            str(output_path),
+        # Two-pass build for accurate "Page X of Y" footers.
+        # Pass 1: build to a throwaway buffer to count actual pages.
+        import copy
+        import io
+
+        story_copy = copy.deepcopy(story)
+
+        doc_kwargs = dict(
             pagesize=letter,
             leftMargin=MARGIN,
             rightMargin=MARGIN,
@@ -551,9 +513,16 @@ def build_pdf(
             bottomMargin=MARGIN,
         )
 
-        def on_page(canvas_obj: object, doc_obj: object) -> None:
-            _add_footer(canvas_obj, doc_obj, site_name, total_pages=total_pages)
+        buf = io.BytesIO()
+        counting_doc = SimpleDocTemplate(buf, **doc_kwargs)
+        counting_doc.build(story_copy)
+        total_pages = counting_doc.page
 
+        # Pass 2: build the real PDF with correct page count in footers.
+        def on_page(canvas_obj: object, doc_obj: object) -> None:
+            _add_footer(canvas_obj, doc_obj, site_name, total_pages)
+
+        doc = SimpleDocTemplate(str(output_path), **doc_kwargs)
         doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
 
         file_size_kb = output_path.stat().st_size / 1024

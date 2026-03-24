@@ -2,7 +2,13 @@
 
 from pathlib import Path
 
-from src.rates.rate_builder import build_rate_schedule, save_rate_file
+from src.rates.models import RateSchedule, RateTier
+from src.rates.rate_builder import (
+    _build_schedule_matrix,
+    build_rate_schedule,
+    save_rate_file,
+    set_net_metering,
+)
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -139,6 +145,75 @@ def prompt_yes_no(message: str, default: bool | None = None) -> bool:
         if value in ("n", "no"):
             return False
         print("  Please enter 'y' or 'n'.")
+
+
+def validate_nem_export_vs_import(rate: RateSchedule) -> list[str]:
+    """Check whether any NEM export rate exceeds the import rate for the same cell.
+
+    Compares export vs. import rates across the 12x24 weekday and weekend
+    schedule matrices. Returns a list of human-readable warning strings
+    (empty if no issues found).
+
+    Args:
+        rate: Fully built RateSchedule with net_metering applied.
+
+    Returns:
+        List of warning strings. Empty if no export > import found.
+    """
+    nem = rate.net_metering
+
+    if nem.mode in ("none", "match_import"):
+        return []
+
+    warnings: list[str] = []
+
+    def _import_rate(month: int, hour: int, weekend: bool) -> float:
+        schedule = rate.energyweekendschedule if weekend else rate.energyweekdayschedule
+        period_idx = schedule[month][hour]
+        return rate.energyratestructure[period_idx][0].rate
+
+    if nem.mode == "flat_rate":
+        export = nem.export_rate
+        for m in range(12):
+            for h in range(24):
+                # Weekday
+                imp_wd = _import_rate(m, h, weekend=False)
+                if export > imp_wd:
+                    warnings.append(
+                        f"Export rate ${export:.4f} exceeds import rate "
+                        f"${imp_wd:.4f} for month {m + 1}, hour {h} (weekday)"
+                    )
+                # Weekend
+                imp_we = _import_rate(m, h, weekend=True)
+                if export > imp_we:
+                    warnings.append(
+                        f"Export rate ${export:.4f} exceeds import rate "
+                        f"${imp_we:.4f} for month {m + 1}, hour {h} (weekend)"
+                    )
+
+    elif nem.mode == "detailed":
+        for m in range(12):
+            for h in range(24):
+                # Weekday
+                imp_wd = _import_rate(m, h, weekend=False)
+                exp_idx_wd = nem.export_schedule[m][h]
+                exp_wd = nem.export_rate_structure[exp_idx_wd][0].rate
+                if exp_wd > imp_wd:
+                    warnings.append(
+                        f"Export rate ${exp_wd:.4f} exceeds import rate "
+                        f"${imp_wd:.4f} for month {m + 1}, hour {h} (weekday)"
+                    )
+                # Weekend
+                imp_we = _import_rate(m, h, weekend=True)
+                exp_idx_we = nem.export_weekend_schedule[m][h]
+                exp_we = nem.export_rate_structure[exp_idx_we][0].rate
+                if exp_we > imp_we:
+                    warnings.append(
+                        f"Export rate ${exp_we:.4f} exceeds import rate "
+                        f"${imp_we:.4f} for month {m + 1}, hour {h} (weekend)"
+                    )
+
+    return warnings
 
 
 def _collect_seasons() -> dict[str, list[int]]:
@@ -311,6 +386,79 @@ def _collect_flat_demand_rates(
     return flat_rates
 
 
+def _collect_net_metering(
+    seasons: dict[str, list[int]],
+) -> dict | None:
+    """Interactively collect net energy metering configuration.
+
+    Args:
+        seasons: Season definitions from the main rate configuration,
+            reused for detailed export schedule construction.
+
+    Returns:
+        Dict of kwargs for set_net_metering(), or None if NEM is declined.
+    """
+    if not prompt_yes_no("Configure net energy metering (NEM)?", default=False):
+        return None
+
+    print("\nSelect NEM mode:")
+    print("  1. Flat rate — fixed $/kWh export credit")
+    print("  2. Match import — export credited at same TOU rate as import")
+    print("  3. Detailed — separate export rate schedule")
+
+    while True:
+        choice = prompt_int("Choice")
+        if choice in (1, 2, 3):
+            break
+        print("  Please enter 1, 2, or 3.")
+
+    mode_map = {1: "flat_rate", 2: "match_import", 3: "detailed"}
+    mode = mode_map[choice]
+    kwargs: dict = {"mode": mode}
+
+    if mode == "flat_rate":
+        while True:
+            export_rate = prompt_float("Export rate ($/kWh)")
+            if export_rate > 0:
+                break
+            print("  Export rate must be > 0. Try again.")
+        kwargs["export_rate"] = export_rate
+
+    elif mode == "detailed":
+        print("\n--- Export Schedule ---")
+        print("Define export TOU periods (same format as import periods):")
+        export_periods = _collect_tou_periods()
+
+        print("\n--- Export Rates ---")
+        export_period_map: dict[tuple[str, str], int] = {}
+        export_rate_structure: list[list[RateTier]] = []
+        idx = 0
+        season_names = list(seasons.keys())
+        period_names = list(export_periods.keys())
+        for s in season_names:
+            for p in period_names:
+                rate_val = prompt_float(
+                    f"Export rate for {s}/{p} ($/kWh)"
+                )
+                export_period_map[(s, p)] = idx
+                export_rate_structure.append([RateTier(rate=rate_val)])
+                idx += 1
+
+        kwargs["export_schedule"] = _build_schedule_matrix(
+            seasons, export_periods, export_period_map, "weekday_hours"
+        )
+        kwargs["export_weekend_schedule"] = _build_schedule_matrix(
+            seasons, export_periods, export_period_map, "weekend_hours"
+        )
+        kwargs["export_rate_structure"] = export_rate_structure
+
+    kwargs["true_up_rate"] = prompt_float(
+        "Annual true-up rate for banked credits ($/kWh)", default=0.00
+    )
+
+    return kwargs
+
+
 def run_cli() -> Path:
     """Run the interactive rate builder flow.
 
@@ -391,9 +539,38 @@ def run_cli() -> Path:
             sector=sector,
         )
 
-    # Output
+    # Output path
     output_path_str = prompt_str("Output file path", default="rate_schedule.json")
     output_path = Path(output_path_str)
+
+    # --- Net Energy Metering (optional) ---
+    print("\n--- Net Energy Metering ---")
+    try:
+        while True:
+            nem_result = _collect_net_metering(seasons)
+            if nem_result is None:
+                break
+            candidate = set_net_metering(rate, **nem_result)
+            rate_warnings = validate_nem_export_vs_import(candidate)
+            if rate_warnings:
+                print("\nWARNING: Export rates exceed import rates:")
+                for w in rate_warnings:
+                    print(f"  {w}")
+                proceed = prompt_yes_no(
+                    "\nExport rates exceed import rates for some hours. "
+                    "This may cause unrealistic results. Continue anyway?",
+                    default=False,
+                )
+                if proceed:
+                    rate = candidate
+                    break
+                print("\nRe-entering NEM configuration...")
+            else:
+                rate = candidate
+                break
+    except (StopIteration, EOFError):
+        pass  # Skip NEM when input stream is exhausted
+
     save_rate_file(rate, output_path)
 
     # Summary
@@ -409,6 +586,7 @@ def run_cli() -> Path:
     print(f"  TOU demand:     {'yes' if has_demand else 'no'}")
     print(f"  Flat demand:    {'yes' if has_flat_demand else 'no'}")
     print(f"  Fixed charge:   ${rate.fixed_charges.fixed_charge_first_meter:.2f}/month")
+    print(f"  NEM mode:       {rate.net_metering.mode}")
     print(f"  Saved to:       {output_path}")
 
     return output_path

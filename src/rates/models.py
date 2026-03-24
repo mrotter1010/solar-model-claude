@@ -40,13 +40,107 @@ class FixedCharges(BaseModel):
         return v
 
 
+class NetMeteringConfig(BaseModel):
+    """Configuration for net energy metering (NEM) export credits.
+
+    Args:
+        mode: NEM mode — "none", "flat_rate", "match_import", or "detailed".
+        export_rate: Export credit rate in $/kWh (flat_rate mode only).
+        export_schedule: 12x24 weekday matrix mapping month-hour to export
+            period index (detailed mode).
+        export_weekend_schedule: 12x24 weekend matrix mapping month-hour to
+            export period index (detailed mode).
+        export_rate_structure: Export rate tiers per period (detailed mode).
+        true_up_rate: Year-end bank cashout rate in $/kWh.
+    """
+
+    mode: str = "none"
+    export_rate: float | None = None
+    export_schedule: list[list[int]] | None = None
+    export_weekend_schedule: list[list[int]] | None = None
+    export_rate_structure: list[list[RateTier]] | None = None
+    true_up_rate: float = 0.0
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def coerce_mode_lowercase(cls, v: object) -> str:
+        """Coerce mode to lowercase string."""
+        if v is None:
+            return "none"
+        return str(v).strip().lower()
+
+    @model_validator(mode="after")
+    def validate_mode_fields(self) -> "NetMeteringConfig":
+        """Validate fields required by the selected NEM mode.
+
+        Rules:
+        - mode must be one of: none, flat_rate, match_import, detailed.
+        - flat_rate requires export_rate > 0.
+        - detailed requires export_schedule (12x24), export_weekend_schedule
+          (12x24), and export_rate_structure (≥1 tier per period).
+        - match_import and none have no additional requirements.
+        """
+        allowed_modes = {"none", "flat_rate", "match_import", "detailed"}
+        if self.mode not in allowed_modes:
+            raise ValueError(
+                f"mode must be one of {sorted(allowed_modes)}, got '{self.mode}'"
+            )
+
+        if self.mode == "flat_rate":
+            if self.export_rate is None:
+                raise ValueError(
+                    "export_rate is required when mode is 'flat_rate'"
+                )
+            if self.export_rate <= 0:
+                raise ValueError(
+                    f"export_rate must be > 0 when mode is 'flat_rate', "
+                    f"got {self.export_rate}"
+                )
+
+        if self.mode == "detailed":
+            if self.export_schedule is None:
+                raise ValueError(
+                    "export_schedule is required when mode is 'detailed'"
+                )
+            if self.export_weekend_schedule is None:
+                raise ValueError(
+                    "export_weekend_schedule is required when mode is 'detailed'"
+                )
+            if self.export_rate_structure is None:
+                raise ValueError(
+                    "export_rate_structure is required when mode is 'detailed'"
+                )
+            for field_name, schedule in [
+                ("export_schedule", self.export_schedule),
+                ("export_weekend_schedule", self.export_weekend_schedule),
+            ]:
+                if len(schedule) != 12:
+                    raise ValueError(
+                        f"{field_name} must have 12 rows (months), "
+                        f"got {len(schedule)}"
+                    )
+                for i, row in enumerate(schedule):
+                    if len(row) != 24:
+                        raise ValueError(
+                            f"{field_name}[{i}] must have 24 columns (hours), "
+                            f"got {len(row)}"
+                        )
+            for i, tiers in enumerate(self.export_rate_structure):
+                if len(tiers) < 1:
+                    raise ValueError(
+                        f"export_rate_structure[{i}] must have at least 1 tier"
+                    )
+
+        return self
+
+
 class RateSchedule(BaseModel):
     """Canonical electricity rate structure modeled after URDB format.
 
     Contains energy charges, optional TOU demand charges, optional flat
-    (non-coincident) demand charges, and fixed charges. Schedule matrices
-    map each month-hour combination to a period index in the corresponding
-    rate structure array.
+    (non-coincident) demand charges, fixed charges, and optional net
+    metering configuration. Schedule matrices map each month-hour
+    combination to a period index in the corresponding rate structure array.
 
     Args:
         utility_name: Name of the electric utility.
@@ -65,6 +159,7 @@ class RateSchedule(BaseModel):
         demandweekendschedule: 12x24 matrix for TOU demand (optional).
         flatdemandstructure: Non-coincident demand rate periods (optional).
         flatdemandmonths: 12-element array mapping months to flat demand periods.
+        net_metering: Net energy metering configuration.
     """
 
     utility_name: str
@@ -89,6 +184,9 @@ class RateSchedule(BaseModel):
     # Flat (non-coincident) demand charges (optional as a group)
     flatdemandstructure: list[list[RateTier]] | None = None
     flatdemandmonths: list[int] | None = None
+
+    # Net energy metering
+    net_metering: NetMeteringConfig = Field(default_factory=NetMeteringConfig)
 
     @field_validator("source")
     @classmethod
@@ -296,15 +394,20 @@ class MonthlyBillDetail(BaseModel):
     production_kwh: float
     consumption_kwh: float
     peak_demand_kw: float
+    export_kwh: float = 0.0
+    export_credits: float = 0.0
+    nem_credits_applied: float = 0.0
+    nem_credits_banked_kwh: float = 0.0
 
     @model_validator(mode="after")
     def compute_total(self) -> "MonthlyBillDetail":
-        """Compute total as sum of all charge components."""
+        """Compute total as sum of all charge components minus NEM credits."""
         self.total = (
             self.energy_charges
             + self.demand_charges
             + self.flat_demand_charges
             + self.fixed_charges
+            - self.nem_credits_applied
         )
         return self
 
@@ -326,6 +429,9 @@ class BillResult(BaseModel):
     annual_total: float = 0.0
     annual_consumption_kwh: float = 0.0
     annual_production_kwh: float = 0.0
+    annual_export_kwh: float = 0.0
+    annual_export_credits: float = 0.0
+    nem_true_up_credit: float = 0.0
 
     @field_validator("monthly")
     @classmethod
@@ -344,9 +450,11 @@ class BillResult(BaseModel):
             m.flat_demand_charges for m in self.monthly
         )
         self.annual_fixed_charges = sum(m.fixed_charges for m in self.monthly)
-        self.annual_total = sum(m.total for m in self.monthly)
+        self.annual_total = sum(m.total for m in self.monthly) - self.nem_true_up_credit
         self.annual_consumption_kwh = sum(m.consumption_kwh for m in self.monthly)
         self.annual_production_kwh = sum(m.production_kwh for m in self.monthly)
+        self.annual_export_kwh = sum(m.export_kwh for m in self.monthly)
+        self.annual_export_credits = sum(m.export_credits for m in self.monthly)
         return self
 
 

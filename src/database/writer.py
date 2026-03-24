@@ -230,6 +230,8 @@ def save_run_to_db(
                 site_config.bess_cycles_warranty
                 if site_config.bess_dispatch_required else None
             ),
+            bess_solar_only_charging=site_config.bess_solar_only_charging,
+            bess_grid_only_charging=site_config.bess_grid_only_charging,
             bill_calculation=site_config.bill_calculation,
             rate_file_path=str(site_config.rate_file_path) if site_config.rate_file_path else None,
             utility_name=site_config.utility_name,

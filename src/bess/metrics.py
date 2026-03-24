@@ -7,11 +7,16 @@ from src.rates.tou_mapper import get_month_ranges
 _ACTIVITY_THRESHOLD = 0.1
 
 
-def compute_battery_metrics(result: DispatchResult) -> BatteryMetrics:
+def compute_battery_metrics(
+    result: DispatchResult,
+    charging_source: str = "any",
+) -> BatteryMetrics:
     """Compute annual battery performance metrics from dispatch results.
 
     Args:
         result: Full-year dispatch result with 8760 hourly entries.
+        charging_source: Battery charging source label
+            ("any", "solar_only", "grid_only").
 
     Returns:
         BatteryMetrics with all computed fields populated.
@@ -71,6 +76,10 @@ def compute_battery_metrics(result: DispatchResult) -> BatteryMetrics:
         annual_cycles / config.bess_cycles_warranty * 100
     )
 
+    # --- Export ---
+    total_export_kwh = sum(h.export_kw for h in hourly)
+    total_export_hours = sum(1 for h in hourly if h.export_kw > _ACTIVITY_THRESHOLD)
+
     return BatteryMetrics(
         annual_throughput_kwh=annual_throughput_kwh,
         annual_cycles=annual_cycles,
@@ -83,6 +92,9 @@ def compute_battery_metrics(result: DispatchResult) -> BatteryMetrics:
         hours_discharging=hours_discharging,
         hours_idle=hours_idle,
         estimated_annual_degradation_pct=estimated_annual_degradation_pct,
+        total_export_kwh=total_export_kwh,
+        total_export_hours=total_export_hours,
+        charging_source=charging_source,
     )
 
 

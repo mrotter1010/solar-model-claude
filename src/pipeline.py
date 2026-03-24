@@ -552,6 +552,9 @@ class SolarModelingPipeline:
                         "savings_percent": bill_savings.savings_percent,
                         "avoided_cost_per_kwh": bill_savings.avoided_cost_per_kwh,
                         "annual_demand_savings": bill_savings.annual_demand_savings,
+                        "annual_export_kwh": bill_savings.bill_with_solar.annual_export_kwh,
+                        "annual_export_credits": bill_savings.bill_with_solar.annual_export_credits,
+                        "nem_true_up_credit": bill_savings.bill_with_solar.nem_true_up_credit,
                         "monthly_detail": [
                             {
                                 "month": wi.month,
@@ -593,6 +596,13 @@ class SolarModelingPipeline:
                         "capacity_utilization_pct": dispatch_result.metrics.capacity_utilization_pct,
                         "total_curtailed_kwh": dispatch_result.metrics.total_curtailed_kwh,
                         "estimated_annual_degradation_pct": dispatch_result.metrics.estimated_annual_degradation_pct,
+                        "total_export_kwh": dispatch_result.metrics.total_export_kwh,
+                        "total_export_hours": dispatch_result.metrics.total_export_hours,
+                        "charging_source": dispatch_result.metrics.charging_source,
+                        "solar_only_export_kwh": bess_comparison.solar_only_export_kwh,
+                        "solar_only_export_credits": bess_comparison.solar_only_export_credits,
+                        "solar_plus_bess_export_kwh": bess_comparison.solar_plus_bess_export_kwh,
+                        "solar_plus_bess_export_credits": bess_comparison.solar_plus_bess_export_credits,
                         "monthly_solver_status": dispatch_result.monthly_solve_status,
                         "heatmap_data": dispatch_result.heatmap_data,
                     }
@@ -616,6 +626,7 @@ class SolarModelingPipeline:
                     avg_load = [0.0] * 24
                     avg_solar = [0.0] * 24
                     avg_battery = [0.0] * 24
+                    avg_export = [0.0] * 24
                     for day in range(n_days):
                         for h in range(24):
                             idx = m_start + day * 24 + h
@@ -623,9 +634,11 @@ class SolarModelingPipeline:
                             avg_solar[h] += hourly_production_kwh[idx]
                             hd = dispatch_result.hourly_dispatch[idx]
                             avg_battery[h] += hd.discharge_kw - hd.charge_kw
+                            avg_export[h] += hd.export_kw
                     avg_load = [v / n_days for v in avg_load]
                     avg_solar = [v / n_days for v in avg_solar]
                     avg_battery = [v / n_days for v in avg_battery]
+                    avg_export = [v / n_days for v in avg_export]
 
                     summary["bess_dispatch"]["dispatch_profile_month"] = (
                         _month_names[peak_month]
@@ -633,6 +646,7 @@ class SolarModelingPipeline:
                     summary["bess_dispatch"]["dispatch_profile_load"] = avg_load
                     summary["bess_dispatch"]["dispatch_profile_solar"] = avg_solar
                     summary["bess_dispatch"]["dispatch_profile_battery"] = avg_battery
+                    summary["bess_dispatch"]["dispatch_profile_export"] = avg_export
 
                 except Exception as e:
                     logger.warning(f"BESS dispatch failed for {site.run_name}: {e}")

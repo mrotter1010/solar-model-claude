@@ -100,6 +100,7 @@ class HourlyDispatch(BaseModel):
         soc_kwh: State of charge at end of hour in kWh.
         net_load_kw: Net load after BESS dispatch in kW.
         curtailed_kw: Curtailed excess solar in kW.
+        export_kw: Grid export in kW (positive = exporting). Zero when NEM inactive.
     """
 
     hour: int = Field(ge=0, lt=8760)
@@ -108,6 +109,7 @@ class HourlyDispatch(BaseModel):
     soc_kwh: float = Field(ge=0)
     net_load_kw: float
     curtailed_kw: float = Field(ge=0)
+    export_kw: float = Field(default=0.0, ge=0)
 
 
 class BatteryMetrics(BaseModel):
@@ -125,6 +127,9 @@ class BatteryMetrics(BaseModel):
         hours_discharging: Hours where discharge_kw > 0.1.
         hours_idle: 8760 - charging - discharging.
         estimated_annual_degradation_pct: Linear degradation estimate (%).
+        total_export_kwh: Total grid export energy over the year.
+        total_export_hours: Number of hours with grid export > 0.
+        charging_source: Battery charging source ("any", "solar_only", "grid_only").
     """
 
     annual_throughput_kwh: float = Field(ge=0)
@@ -138,6 +143,9 @@ class BatteryMetrics(BaseModel):
     hours_discharging: int = Field(ge=0)
     hours_idle: int = Field(ge=0)
     estimated_annual_degradation_pct: float = Field(ge=0)
+    total_export_kwh: float = Field(default=0.0, ge=0)
+    total_export_hours: int = Field(default=0, ge=0)
+    charging_source: str = "any"
 
 
 class DispatchResult(BaseModel):
@@ -167,6 +175,10 @@ class BESSBillComparison(BaseModel):
         bess_incremental_savings: Total incremental savings from BESS.
         bess_demand_savings: Demand charge savings from BESS.
         bess_energy_savings: Energy charge savings from BESS.
+        solar_only_export_kwh: Annual export kWh in solar-only scenario.
+        solar_only_export_credits: Annual export credits ($) in solar-only scenario.
+        solar_plus_bess_export_kwh: Annual export kWh in solar+BESS scenario.
+        solar_plus_bess_export_credits: Annual export credits ($) in solar+BESS scenario.
     """
 
     solar_only_annual_bill: float
@@ -174,3 +186,7 @@ class BESSBillComparison(BaseModel):
     bess_incremental_savings: float
     bess_demand_savings: float
     bess_energy_savings: float
+    solar_only_export_kwh: float = 0.0
+    solar_only_export_credits: float = 0.0
+    solar_plus_bess_export_kwh: float = 0.0
+    solar_plus_bess_export_credits: float = 0.0
