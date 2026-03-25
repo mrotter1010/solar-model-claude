@@ -518,7 +518,7 @@ class TestRecreateRunInput:
 
         # Optional BESS fields
         assert result["BESS Dispatch Required"] is False
-        assert result["BESS Optimization Required"] is None
+        assert result["BESS Optimization Required"] is False
 
     def test_nonexistent_run_id_raises_error(self) -> None:
         """Querying a nonexistent run UUID raises SolarModelError."""

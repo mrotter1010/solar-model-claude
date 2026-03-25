@@ -305,8 +305,8 @@ class TestCSVBackwardCompatibility:
         for site in configs:
             # bess_dispatch_required should be False (blank CSV cell)
             assert site.bess_dispatch_required is False
-            # bess_optimization_required stays float | None (unchanged)
-            assert site.bess_optimization_required is None
+            # bess_optimization_required is now bool, default False
+            assert site.bess_optimization_required is False
             # New BESS fields should have defaults
             assert site.bess_power_mw is None
             assert site.bess_duration_hr is None

@@ -157,7 +157,7 @@ def test_bess_fields_are_optional(sample_valid_csv: Path) -> None:
 
     for site in configs:
         assert site.bess_dispatch_required is False
-        assert site.bess_optimization_required is None
+        assert site.bess_optimization_required is False
 
 
 # --- Validation Errors ---

@@ -64,6 +64,17 @@ COLUMN_MAP: dict[str, str] = {
     "BESS Cycles Warranty": "bess_cycles_warranty",
     "BESS Solar Only Charging": "bess_solar_only_charging",
     "BESS Grid Only Charging": "bess_grid_only_charging",
+    "Discount Rate (%)": "discount_rate_pct",
+    "Project Lifetime (years)": "project_lifetime_years",
+    "Rate Escalation (%)": "rate_escalation_pct",
+    "Solar Cost ($/kW DC)": "solar_cost_per_kw_dc",
+    "Solar Cost ($/kW AC)": "solar_cost_per_kw_ac",
+    "Solar O&M ($/kW-DC/yr)": "solar_opex_per_kw_dc_year",
+    "BESS O&M ($/kW/yr)": "bess_opex_per_kw_year",
+    "BESS Power Min (MW)": "bess_power_min_mw",
+    "BESS Power Max (MW)": "bess_power_max_mw",
+    "BESS Duration Min (hr)": "bess_duration_min_hr",
+    "BESS Duration Max (hr)": "bess_duration_max_hr",
 }
 
 

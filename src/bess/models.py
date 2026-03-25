@@ -190,3 +190,85 @@ class BESSBillComparison(BaseModel):
     solar_only_export_credits: float = 0.0
     solar_plus_bess_export_kwh: float = 0.0
     solar_plus_bess_export_credits: float = 0.0
+
+
+class SweepComboResult(BaseModel):
+    """Result for a single BESS power/duration combo in the sizing sweep.
+
+    Args:
+        power_mw: BESS rated power in MW.
+        duration_hr: BESS storage duration in hours.
+        capacity_kwh: Nameplate energy capacity (power_kw * duration_hr).
+        installed_cost: Total BESS installed cost ($).
+        bess_incremental_savings: Year 1 incremental savings from BESS ($/yr).
+        bess_npv: Net present value of the BESS investment ($).
+        annual_cycles: Equivalent full cycles per year.
+        annual_degradation_pct: Estimated annual capacity degradation (%).
+        solver_status: Monthly LP solver status strings (12 entries).
+    """
+
+    power_mw: float
+    duration_hr: float
+    capacity_kwh: float
+    installed_cost: float
+    bess_incremental_savings: float
+    bess_npv: float
+    annual_cycles: float
+    annual_degradation_pct: float
+    solver_status: list[str]
+
+
+class ProjectEconomics(BaseModel):
+    """Full project economics for the optimal solar+BESS configuration.
+
+    Args:
+        total_project_npv: Combined solar + BESS NPV ($).
+        solar_npv: Solar-only NPV ($). Zero for grid-only BESS.
+        bess_npv: BESS-only NPV ($).
+        system_lcoe_per_kwh: Levelized cost of energy ($/kWh). None for grid-only.
+        total_installed_cost: Combined solar + BESS installed cost ($).
+        solar_cost: Solar installed cost ($). Zero for grid-only BESS.
+        bess_cost: BESS installed cost ($).
+        total_annual_savings: Year 1 combined savings ($/yr).
+        bess_incremental_savings: Year 1 BESS-only savings ($/yr).
+        annual_production_mwh: Annual solar production (MWh).
+        lifetime_generation_mwh: Degradation-adjusted lifetime generation (MWh).
+        optimal_power_mw: Selected BESS power (MW).
+        optimal_duration_hr: Selected BESS duration (hr).
+        optimal_capacity_kwh: Selected BESS capacity (kWh).
+        combos_evaluated: Number of power/duration combos evaluated.
+    """
+
+    total_project_npv: float
+    solar_npv: float
+    bess_npv: float
+    system_lcoe_per_kwh: float | None
+    total_installed_cost: float
+    solar_cost: float
+    bess_cost: float
+    total_annual_savings: float
+    bess_incremental_savings: float
+    annual_production_mwh: float
+    lifetime_generation_mwh: float
+    optimal_power_mw: float
+    optimal_duration_hr: float
+    optimal_capacity_kwh: float
+    combos_evaluated: int
+
+
+class SizingResult(BaseModel):
+    """Complete BESS sizing optimization result.
+
+    Args:
+        winner: Best combo by NPV from the sweep.
+        economics: Full project economics for the winning combo.
+        all_combos: All evaluated power/duration combos with results.
+        dispatch_result: Full dispatch result for the winning combo.
+        bill_comparison: Bill comparison for the winning combo.
+    """
+
+    winner: SweepComboResult
+    economics: ProjectEconomics
+    all_combos: list[SweepComboResult]
+    dispatch_result: DispatchResult
+    bill_comparison: BESSBillComparison

@@ -35,7 +35,7 @@ class SiteConfig(BaseModel):
 
     # BESS
     bess_dispatch_required: bool = False
-    bess_optimization_required: float | None = None
+    bess_optimization_required: bool = False
     bess_power_mw: float | None = None
     bess_duration_hr: float | None = None
     bess_rte_percent: float = 88.0
@@ -46,6 +46,19 @@ class SiteConfig(BaseModel):
     bess_cycles_warranty: int = 5000
     bess_solar_only_charging: bool = False
     bess_grid_only_charging: bool = False
+    bess_power_min_mw: float | None = None
+    bess_power_max_mw: float | None = None
+    bess_duration_min_hr: float = 2.0
+    bess_duration_max_hr: float = 5.0
+    bess_opex_per_kw_year: float = 0.0
+
+    # Financial (BESS sizing optimization)
+    discount_rate_pct: float = 7.0
+    project_lifetime_years: int = 25
+    rate_escalation_pct: float = 2.0
+    solar_cost_per_kw_dc: float | None = None
+    solar_cost_per_kw_ac: float | None = None
+    solar_opex_per_kw_dc_year: float = 0.0
 
     # System Capacity
     dc_size_mw: float = Field(gt=0)
@@ -151,6 +164,20 @@ class SiteConfig(BaseModel):
             return v.strip().upper() in ("TRUE", "YES", "1")
         return bool(v)
 
+    @field_validator("bess_optimization_required", mode="before")
+    @classmethod
+    def validate_bess_optimization_required(cls, v: object) -> bool:
+        """Coerce BESS optimization required field from CSV to bool.
+
+        Handles None (empty cell), empty string, and string TRUE/FALSE
+        values that pandas may produce when reading CSV columns.
+        """
+        if v is None or v == "":
+            return False
+        if isinstance(v, str):
+            return v.strip().upper() in ("TRUE", "YES", "1")
+        return bool(v)
+
     @field_validator("bess_power_mw", "bess_duration_hr", mode="before")
     @classmethod
     def validate_optional_bess_float(cls, v: object) -> float | None:
@@ -164,6 +191,12 @@ class SiteConfig(BaseModel):
         "bess_min_soc_percent",
         "bess_max_soc_percent",
         "bess_installed_cost_per_kwh",
+        "bess_duration_min_hr",
+        "bess_duration_max_hr",
+        "bess_opex_per_kw_year",
+        "discount_rate_pct",
+        "rate_escalation_pct",
+        "solar_opex_per_kw_dc_year",
         mode="before",
     )
     @classmethod
@@ -188,6 +221,28 @@ class SiteConfig(BaseModel):
         if v is None or (isinstance(v, str) and v.strip() == ""):
             return 5000
         return int(v)
+
+    @field_validator("project_lifetime_years", mode="before")
+    @classmethod
+    def validate_project_lifetime_years(cls, v: object) -> int:
+        """Coerce None/empty project lifetime to default."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return 25
+        return int(v)
+
+    @field_validator(
+        "bess_power_min_mw",
+        "bess_power_max_mw",
+        "solar_cost_per_kw_dc",
+        "solar_cost_per_kw_ac",
+        mode="before",
+    )
+    @classmethod
+    def validate_optional_sizing_float(cls, v: object) -> float | None:
+        """Coerce empty/NaN sizing float fields to None."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return float(v)
 
     @field_validator("bess_solar_only_charging", mode="before")
     @classmethod
@@ -464,11 +519,13 @@ class SiteConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_bess_fields(self) -> "SiteConfig":
-        """Cross-validate BESS dispatch fields.
+        """Cross-validate BESS dispatch and optimization fields.
 
         When bess_dispatch_required is True, validates that all required
-        BESS parameters are provided and consistent. When False, skips
-        all BESS validation.
+        BESS parameters are provided and consistent. When
+        bess_optimization_required is True, validates sizing optimization
+        parameters and relaxes fixed-size requirements. When both are
+        False, skips all BESS validation.
         """
         # Charging mode mutual exclusivity (independent of dispatch_required)
         if self.bess_solar_only_charging and self.bess_grid_only_charging:
@@ -490,18 +547,39 @@ class SiteConfig(BaseModel):
                 "BESS Grid Only Charging is True."
             )
 
+        # --- Optimization pre-checks ---
+        if self.bess_optimization_required:
+            if not self.bess_dispatch_required:
+                raise ValueError(
+                    "BESS Dispatch Required must be True when "
+                    "BESS Optimization Required is True."
+                )
+            if not self.bill_calculation:
+                raise ValueError(
+                    "Bill Calculation must be True when "
+                    "BESS Optimization Required is True."
+                )
+
         if not self.bess_dispatch_required:
             return self
 
-        if self.bess_power_mw is None or self.bess_power_mw <= 0:
-            raise ValueError(
-                "BESS Power (MW) must be > 0 when BESS Dispatch Required is True."
-            )
-
-        if self.bess_duration_hr is None or self.bess_duration_hr <= 0:
-            raise ValueError(
-                "BESS Duration (hr) must be > 0 when BESS Dispatch Required is True."
-            )
+        # --- Fixed-size vs optimization sizing ---
+        if self.bess_optimization_required:
+            # Optimization mode: power/duration will be determined by optimizer.
+            # Set dummy defaults so downstream code doesn't choke on None/0.
+            if self.bess_power_mw is None or self.bess_power_mw <= 0:
+                self.bess_power_mw = 0.0
+            if self.bess_duration_hr is None or self.bess_duration_hr <= 0:
+                self.bess_duration_hr = 0.0
+        else:
+            if self.bess_power_mw is None or self.bess_power_mw <= 0:
+                raise ValueError(
+                    "BESS Power (MW) must be > 0 when BESS Dispatch Required is True."
+                )
+            if self.bess_duration_hr is None or self.bess_duration_hr <= 0:
+                raise ValueError(
+                    "BESS Duration (hr) must be > 0 when BESS Dispatch Required is True."
+                )
 
         allowed_strategies = {"peak_shaving", "tou_arbitrage", "global"}
         if self.bess_strategy not in allowed_strategies:
@@ -539,6 +617,59 @@ class SiteConfig(BaseModel):
                 "Bill Calculation must be True when BESS Dispatch Required is True. "
                 "BESS dispatch depends on rate structure and load profile."
             )
+
+        # --- Optimization-specific validation ---
+        if self.bess_optimization_required:
+            if self.discount_rate_pct <= 0:
+                raise ValueError(
+                    "Discount Rate (%) must be > 0 when "
+                    "BESS Optimization Required is True."
+                )
+            if self.project_lifetime_years <= 0:
+                raise ValueError(
+                    "Project Lifetime (years) must be > 0 when "
+                    "BESS Optimization Required is True."
+                )
+
+            if not self.bess_grid_only_charging:
+                if self.solar_cost_per_kw_dc is None:
+                    raise ValueError(
+                        "Solar Cost ($/kW DC) is required when "
+                        "BESS Optimization Required is True."
+                    )
+                if self.solar_cost_per_kw_ac is None:
+                    raise ValueError(
+                        "Solar Cost ($/kW AC) is required when "
+                        "BESS Optimization Required is True."
+                    )
+
+            if self.bess_grid_only_charging:
+                if self.bess_power_min_mw is None:
+                    raise ValueError(
+                        "BESS Power Min (MW) is required when "
+                        "BESS Optimization Required is True with grid-only charging."
+                    )
+                if self.bess_power_max_mw is None:
+                    raise ValueError(
+                        "BESS Power Max (MW) is required when "
+                        "BESS Optimization Required is True with grid-only charging."
+                    )
+
+            if (
+                self.bess_power_min_mw is not None
+                and self.bess_power_max_mw is not None
+                and self.bess_power_min_mw >= self.bess_power_max_mw
+            ):
+                raise ValueError(
+                    f"BESS Power Min ({self.bess_power_min_mw} MW) must be less than "
+                    f"BESS Power Max ({self.bess_power_max_mw} MW)."
+                )
+
+            if self.bess_duration_min_hr >= self.bess_duration_max_hr:
+                raise ValueError(
+                    f"BESS Duration Min ({self.bess_duration_min_hr} hr) must be less "
+                    f"than BESS Duration Max ({self.bess_duration_max_hr} hr)."
+                )
 
         return self
 

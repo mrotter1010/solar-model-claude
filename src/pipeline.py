@@ -28,6 +28,7 @@ from src.models.subhourly_correction import (
 from src.models.timeseries_adjustment import apply_correction
 from src.outputs.output_writer import OutputWriter
 from src.bess.dispatch_runner import run_bess_dispatch
+from src.bess.sizing_optimizer import run_sizing_optimization
 from src.rates.tou_mapper import get_month_ranges
 from src.rates.bill_runner import run_bill_calculation
 from src.reporting.report_generator import generate_report
@@ -570,8 +571,132 @@ class SolarModelingPipeline:
                         ],
                     }
 
-            # BESS dispatch optimization
-            if site.bess_dispatch_required and bill_calc_result is not None:
+            # BESS sizing optimization (M14c)
+            if (
+                site.bess_optimization_required
+                and site.bess_dispatch_required
+                and bill_calc_result is not None
+            ):
+                try:
+                    sizing_result = run_sizing_optimization(
+                        site_config=site,
+                        production_kwh=hourly_production_kwh,
+                        rate_schedule=bill_calc_result.rate_schedule,
+                        load_profile=bill_calc_result.load_profile,
+                        solar_only_bill=bill_calc_result.bill_savings.bill_with_solar,
+                        bill_without_solar=bill_calc_result.bill_savings.bill_without_solar,
+                    )
+                    # Use winner's dispatch result and bill comparison
+                    # for downstream reporting
+                    dispatch_result = sizing_result.dispatch_result
+                    bill_comparison = sizing_result.bill_comparison
+                    # Add sizing results to summary dict
+                    summary["bess_sizing"] = {
+                        "optimal_power_mw": sizing_result.economics.optimal_power_mw,
+                        "optimal_duration_hr": sizing_result.economics.optimal_duration_hr,
+                        "optimal_capacity_kwh": sizing_result.economics.optimal_capacity_kwh,
+                        "bess_npv": sizing_result.economics.bess_npv,
+                        "total_project_npv": sizing_result.economics.total_project_npv,
+                        "system_lcoe_per_kwh": sizing_result.economics.system_lcoe_per_kwh,
+                        "total_installed_cost": sizing_result.economics.total_installed_cost,
+                        "solar_cost": sizing_result.economics.solar_cost,
+                        "bess_cost": sizing_result.economics.bess_cost,
+                        "total_annual_savings": sizing_result.economics.total_annual_savings,
+                        "bess_incremental_savings": sizing_result.economics.bess_incremental_savings,
+                        "annual_production_mwh": sizing_result.economics.annual_production_mwh,
+                        "lifetime_generation_mwh": sizing_result.economics.lifetime_generation_mwh,
+                        "combos_evaluated": sizing_result.economics.combos_evaluated,
+                        "project_lifetime_years": site.project_lifetime_years,
+                        "discount_rate_pct": site.discount_rate_pct,
+                        "rate_escalation_pct": site.rate_escalation_pct,
+                        "sweep_results": [
+                            {
+                                "power_mw": c.power_mw,
+                                "duration_hr": c.duration_hr,
+                                "capacity_kwh": c.capacity_kwh,
+                                "bess_npv": c.bess_npv,
+                                "installed_cost": c.installed_cost,
+                                "bess_incremental_savings": c.bess_incremental_savings,
+                            }
+                            for c in sizing_result.all_combos
+                        ],
+                    }
+                    # Also populate bess_dispatch from winner so PDF/DB
+                    # reporting works unchanged
+                    summary["bess_dispatch"] = {
+                        "bess_power_mw": sizing_result.economics.optimal_power_mw,
+                        "bess_duration_hr": sizing_result.economics.optimal_duration_hr,
+                        "bess_capacity_kwh": sizing_result.economics.optimal_capacity_kwh,
+                        "bess_strategy": site.bess_strategy,
+                        "solar_only_annual_bill": bill_comparison.solar_only_annual_bill,
+                        "solar_plus_bess_annual_bill": bill_comparison.solar_plus_bess_annual_bill,
+                        "bess_incremental_savings": bill_comparison.bess_incremental_savings,
+                        "bess_demand_savings": bill_comparison.bess_demand_savings,
+                        "bess_energy_savings": bill_comparison.bess_energy_savings,
+                        "annual_cycles": dispatch_result.metrics.annual_cycles,
+                        "annual_throughput_kwh": dispatch_result.metrics.annual_throughput_kwh,
+                        "average_daily_cycles": dispatch_result.metrics.average_daily_cycles,
+                        "capacity_utilization_pct": dispatch_result.metrics.capacity_utilization_pct,
+                        "total_curtailed_kwh": dispatch_result.metrics.total_curtailed_kwh,
+                        "estimated_annual_degradation_pct": dispatch_result.metrics.estimated_annual_degradation_pct,
+                        "total_export_kwh": dispatch_result.metrics.total_export_kwh,
+                        "total_export_hours": dispatch_result.metrics.total_export_hours,
+                        "charging_source": dispatch_result.metrics.charging_source,
+                        "solar_only_export_kwh": bill_comparison.solar_only_export_kwh,
+                        "solar_only_export_credits": bill_comparison.solar_only_export_credits,
+                        "solar_plus_bess_export_kwh": bill_comparison.solar_plus_bess_export_kwh,
+                        "solar_plus_bess_export_credits": bill_comparison.solar_plus_bess_export_credits,
+                        "monthly_solver_status": dispatch_result.monthly_solve_status,
+                        "heatmap_data": dispatch_result.heatmap_data,
+                    }
+
+                    # Dispatch profile for the most active month
+                    _month_names = [
+                        "January", "February", "March", "April",
+                        "May", "June", "July", "August",
+                        "September", "October", "November", "December",
+                    ]
+                    hm = dispatch_result.heatmap_data
+                    month_activity = [
+                        sum(abs(v) for v in row) for row in hm
+                    ]
+                    peak_month = month_activity.index(max(month_activity))
+                    month_ranges = get_month_ranges()
+                    m_start, m_end = month_ranges[peak_month]
+                    n_days = (m_end - m_start) // 24
+                    load_kwh = bill_calc_result.load_profile.hourly_kwh
+
+                    avg_load = [0.0] * 24
+                    avg_solar = [0.0] * 24
+                    avg_battery = [0.0] * 24
+                    avg_export = [0.0] * 24
+                    for day in range(n_days):
+                        for h in range(24):
+                            idx = m_start + day * 24 + h
+                            avg_load[h] += load_kwh[idx]
+                            avg_solar[h] += hourly_production_kwh[idx]
+                            hd = dispatch_result.hourly_dispatch[idx]
+                            avg_battery[h] += hd.discharge_kw - hd.charge_kw
+                            avg_export[h] += hd.export_kw
+                    avg_load = [v / n_days for v in avg_load]
+                    avg_solar = [v / n_days for v in avg_solar]
+                    avg_battery = [v / n_days for v in avg_battery]
+                    avg_export = [v / n_days for v in avg_export]
+
+                    summary["bess_dispatch"]["dispatch_profile_month"] = (
+                        _month_names[peak_month]
+                    )
+                    summary["bess_dispatch"]["dispatch_profile_load"] = avg_load
+                    summary["bess_dispatch"]["dispatch_profile_solar"] = avg_solar
+                    summary["bess_dispatch"]["dispatch_profile_battery"] = avg_battery
+                    summary["bess_dispatch"]["dispatch_profile_export"] = avg_export
+
+                except Exception as e:
+                    logger.warning(
+                        f"BESS sizing optimization failed for {site.run_name}: {e}"
+                    )
+            # BESS single-dispatch optimization
+            elif site.bess_dispatch_required and bill_calc_result is not None:
                 try:
                     dispatch_result, bess_comparison = run_bess_dispatch(
                         site_config=site,

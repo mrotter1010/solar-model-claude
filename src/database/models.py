@@ -131,7 +131,7 @@ class RunInput(Base):
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     bess_dispatch_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    bess_optimization_required: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_optimization_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # System sizing
     dc_size_mw: Mapped[float] = mapped_column(Float, nullable=False)
@@ -173,6 +173,21 @@ class RunInput(Base):
     bess_cycles_warranty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bess_solar_only_charging: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
     bess_grid_only_charging: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+
+    # BESS sizing optimization parameters
+    bess_power_min_mw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_power_max_mw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_duration_min_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_duration_max_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bess_opex_per_kw_year: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Project economics parameters
+    discount_rate_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    project_lifetime_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_escalation_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    solar_cost_per_kw_dc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    solar_cost_per_kw_ac: Mapped[float | None] = mapped_column(Float, nullable=True)
+    solar_opex_per_kw_dc_year: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Bill calculation parameters
     bill_calculation: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -233,6 +248,9 @@ class RunResult(Base):
 
     # BESS dispatch results (JSON)
     bess_dispatch: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # BESS sizing optimization results (JSON)
+    bess_sizing: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # File paths
     timeseries_file_path: Mapped[str | None] = mapped_column(String, nullable=True)

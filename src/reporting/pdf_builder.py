@@ -25,7 +25,10 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from src.bess.report_section import build_bess_summary_rows
+from src.bess.report_section import (
+    build_bess_optimization_summary_rows,
+    build_bess_summary_rows,
+)
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -275,6 +278,7 @@ def build_pdf(
     bess_dispatch: Optional[dict] = None,
     bess_heatmap_path: Optional[Path] = None,
     bess_dispatch_chart_path: Optional[Path] = None,
+    bess_sizing: Optional[dict] = None,
 ) -> Optional[Path]:
     """Build a solar production analysis PDF report (3-5 pages).
 
@@ -296,6 +300,7 @@ def build_pdf(
         bess_dispatch: Optional dict from summary["bess_dispatch"] for page 5.
         bess_heatmap_path: Optional path to dispatch heatmap chart PNG.
         bess_dispatch_chart_path: Optional path to dispatch profile chart PNG.
+        bess_sizing: Optional dict from summary["bess_sizing"] for optimization layout.
 
     Returns:
         The output_path on success, or None on failure.
@@ -451,7 +456,14 @@ def build_pdf(
             usable_width = PAGE_WIDTH - 2 * MARGIN
             bess_col_widths = [usable_width * 0.55, usable_width * 0.45]
 
-            bess_rows = build_bess_summary_rows(bess_dispatch)
+            if bess_sizing is not None:
+                combined = {
+                    "bess_sizing": bess_sizing,
+                    "bess_dispatch": bess_dispatch,
+                }
+                bess_rows = build_bess_optimization_summary_rows(combined)
+            else:
+                bess_rows = build_bess_summary_rows(bess_dispatch)
 
             bess_style = TableStyle([
                 ("FONTNAME", (0, 0), (-1, 0), FONT_HEADER),

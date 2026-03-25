@@ -144,6 +144,92 @@ def build_bess_summary_rows(bess_dispatch: dict) -> list[list[str]]:
     return rows
 
 
+def _format_currency(val: float) -> str:
+    """Format a dollar value with proper negative sign placement.
+
+    Args:
+        val: Dollar amount (positive or negative).
+
+    Returns:
+        Formatted string, e.g. "$1,234" or "-$1,234".
+    """
+    if val < 0:
+        return f"(${abs(val):,.0f})"
+    return f"${val:,.0f}"
+
+
+def build_bess_optimization_summary_rows(summary: dict) -> list[list[str]]:
+    """Build summary table rows for BESS sizing optimization results.
+
+    Used when the pipeline ran M14c sizing optimization. Reads from both
+    summary["bess_sizing"] (economics) and summary["bess_dispatch"]
+    (strategy, charging source).
+
+    Args:
+        summary: Full pipeline summary dict containing "bess_sizing" and
+            "bess_dispatch" keys.
+
+    Returns:
+        List of [label, value] string pairs for the PDF summary table.
+    """
+    bs = summary["bess_sizing"]
+    bd = summary.get("bess_dispatch", {})
+
+    rows = [
+        ["Battery Storage — Sizing Optimization", ""],
+        [
+            "Optimal Battery Size",
+            f"{bs['optimal_power_mw']:.1f} MW / {bs['optimal_duration_hr']:.1f} hr "
+            f"({bs['optimal_capacity_kwh']:,.0f} kWh)",
+        ],
+        ["Strategy", str(bd.get("bess_strategy", "N/A"))],
+    ]
+
+    # Charging source — always displayed for optimization results
+    charging_source = bd.get("charging_source", "any")
+    source_map = {
+        "solar_only": "Solar Only",
+        "grid_only": "Grid Only",
+        "any": "Grid + Solar",
+    }
+    rows.append([
+        "Charging Source",
+        source_map.get(charging_source, charging_source),
+    ])
+
+    # NPV and economics
+    total_project_npv = bs["total_project_npv"]
+    bess_npv = bs["bess_npv"]
+    rows.extend([
+        ["Total Project NPV", _format_currency(total_project_npv)],
+        ["BESS NPV", _format_currency(bess_npv)],
+    ])
+
+    lcoe = bs.get("system_lcoe_per_kwh")
+    if lcoe is not None:
+        rows.append(["System LCOE", f"${lcoe:.4f}/kWh"])
+    else:
+        rows.append(["System LCOE", "N/A"])
+
+    rows.extend([
+        ["Total Installed Cost", f"${bs['total_installed_cost']:,.0f}"],
+        ["Year 1 Total Savings", _format_currency(bs["total_annual_savings"])],
+        [
+            "Year 1 BESS Incremental Savings",
+            _format_currency(bs["bess_incremental_savings"]),
+        ],
+        ["Combos Evaluated", str(bs["combos_evaluated"])],
+        [
+            "Project Lifetime",
+            f"{bs['project_lifetime_years']} years",
+        ],
+        ["Discount Rate", f"{bs['discount_rate_pct']}%"],
+        ["Rate Escalation", f"{bs['rate_escalation_pct']}%"],
+    ])
+
+    return rows
+
+
 def generate_dispatch_profile_chart(
     load_kwh: list[float],
     solar_kwh: list[float],

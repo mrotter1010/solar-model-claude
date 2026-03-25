@@ -232,6 +232,50 @@ def save_run_to_db(
             ),
             bess_solar_only_charging=site_config.bess_solar_only_charging,
             bess_grid_only_charging=site_config.bess_grid_only_charging,
+            bess_power_min_mw=(
+                site_config.bess_power_min_mw
+                if site_config.bess_optimization_required else None
+            ),
+            bess_power_max_mw=(
+                site_config.bess_power_max_mw
+                if site_config.bess_optimization_required else None
+            ),
+            bess_duration_min_hr=(
+                site_config.bess_duration_min_hr
+                if site_config.bess_optimization_required else None
+            ),
+            bess_duration_max_hr=(
+                site_config.bess_duration_max_hr
+                if site_config.bess_optimization_required else None
+            ),
+            bess_opex_per_kw_year=(
+                site_config.bess_opex_per_kw_year
+                if site_config.bess_optimization_required else None
+            ),
+            discount_rate_pct=(
+                site_config.discount_rate_pct
+                if site_config.bess_optimization_required else None
+            ),
+            project_lifetime_years=(
+                site_config.project_lifetime_years
+                if site_config.bess_optimization_required else None
+            ),
+            rate_escalation_pct=(
+                site_config.rate_escalation_pct
+                if site_config.bess_optimization_required else None
+            ),
+            solar_cost_per_kw_dc=(
+                site_config.solar_cost_per_kw_dc
+                if site_config.bess_optimization_required else None
+            ),
+            solar_cost_per_kw_ac=(
+                site_config.solar_cost_per_kw_ac
+                if site_config.bess_optimization_required else None
+            ),
+            solar_opex_per_kw_dc_year=(
+                site_config.solar_opex_per_kw_dc_year
+                if site_config.bess_optimization_required else None
+            ),
             bill_calculation=site_config.bill_calculation,
             rate_file_path=str(site_config.rate_file_path) if site_config.rate_file_path else None,
             utility_name=site_config.utility_name,
@@ -266,6 +310,7 @@ def save_run_to_db(
             loss_data=loss_data or None,
             bill_savings=summary.get("bill_savings"),
             bess_dispatch=summary.get("bess_dispatch"),
+            bess_sizing=summary.get("bess_sizing"),
             timeseries_file_path=str(timeseries_path) if timeseries_path else None,
             report_file_path=str(report_path) if report_path else None,
             climate_file_path=str(climate_path) if climate_path else None,

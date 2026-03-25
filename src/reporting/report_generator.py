@@ -132,6 +132,10 @@ def generate_report(
 
             logger.info("Generated BESS charts")
 
+        bess_sizing = (
+            summary.get("bess_sizing") if summary is not None else None
+        )
+
         result = build_pdf(
             output_path=pdf_path,
             site_summary=site_summary,
@@ -141,6 +145,7 @@ def generate_report(
             bess_dispatch=bess_dispatch,
             bess_heatmap_path=bess_heatmap_path,
             bess_dispatch_chart_path=bess_dispatch_chart_path,
+            bess_sizing=bess_sizing,
         )
 
         if result is None:
