@@ -110,6 +110,8 @@ class HourlyDispatch(BaseModel):
     net_load_kw: float
     curtailed_kw: float = Field(ge=0)
     export_kw: float = Field(default=0.0, ge=0)
+    solar_export_kw: float = Field(default=0.0, ge=0)
+    grid_charge_kw: float = Field(default=0.0, ge=0)
 
 
 class BatteryMetrics(BaseModel):
@@ -164,6 +166,7 @@ class DispatchResult(BaseModel):
     monthly_solve_status: list[str]
     metrics: BatteryMetrics | None = None
     heatmap_data: list[list[float]] | None = None
+    ftm_revenue: float | None = None
 
 
 class BESSBillComparison(BaseModel):
@@ -240,7 +243,7 @@ class ProjectEconomics(BaseModel):
     """
 
     total_project_npv: float
-    solar_npv: float
+    solar_npv: float | None
     bess_npv: float
     system_lcoe_per_kwh: float | None
     total_installed_cost: float
@@ -254,6 +257,12 @@ class ProjectEconomics(BaseModel):
     optimal_duration_hr: float
     optimal_capacity_kwh: float
     combos_evaluated: int
+
+    # FTM-specific fields (optional, None for BTM)
+    solar_revenue: float | None = None
+    bess_arbitrage_revenue: float | None = None
+    ancillary_revenue: float | None = None
+    gross_revenue: float | None = None
 
 
 class SizingResult(BaseModel):
@@ -271,4 +280,4 @@ class SizingResult(BaseModel):
     economics: ProjectEconomics
     all_combos: list[SweepComboResult]
     dispatch_result: DispatchResult
-    bill_comparison: BESSBillComparison
+    bill_comparison: BESSBillComparison | None = None

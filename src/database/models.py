@@ -199,6 +199,14 @@ class RunInput(Base):
     annual_consumption_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
     peak_demand_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # FTM / wholesale dispatch parameters
+    dispatch_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+    iso: Mapped[str | None] = mapped_column(String, nullable=True)
+    lmp_zone: Mapped[str | None] = mapped_column(String, nullable=True)
+    lmp_market: Mapped[str | None] = mapped_column(String, nullable=True)
+    lmp_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ancillary_revenue_per_kw_year: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     run: Mapped["Run"] = relationship(back_populates="inputs")
 
     def __repr__(self) -> str:
@@ -251,6 +259,10 @@ class RunResult(Base):
 
     # BESS sizing optimization results (JSON)
     bess_sizing: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # FTM / wholesale dispatch results (JSON strings)
+    lmp_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ftm_economics: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # File paths
     timeseries_file_path: Mapped[str | None] = mapped_column(String, nullable=True)

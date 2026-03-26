@@ -107,6 +107,15 @@ class SiteConfig(BaseModel):
     kmz_file_path: str | None = None
     analysis_radius_km: float | None = None
 
+    # FTM / Wholesale Dispatch
+    dispatch_mode: str = "btm"
+    iso: str | None = None
+    lmp_zone: str | None = None
+    lmp_node_ids: str | None = None
+    lmp_market: str = "DAY_AHEAD_HOURLY"
+    lmp_year: int | None = None
+    ancillary_revenue_per_kw_year: float = 0.0
+
     # Bill Calculation
     bill_calculation: bool = False
     rate_file_path: str | None = None
@@ -271,6 +280,76 @@ class SiteConfig(BaseModel):
         if isinstance(v, str):
             return v.strip().upper() in ("TRUE", "YES", "1")
         return bool(v)
+
+    @field_validator("dispatch_mode", mode="before")
+    @classmethod
+    def validate_dispatch_mode(cls, v: object) -> str:
+        """Validate dispatch mode is 'btm' or 'ftm' (case-insensitive)."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return "btm"
+        val = str(v).strip().lower()
+        if val not in ("btm", "ftm"):
+            raise ValueError(
+                f"Dispatch Mode must be 'btm' or 'ftm', got '{v}'."
+            )
+        return val
+
+    @field_validator("iso", mode="before")
+    @classmethod
+    def validate_iso(cls, v: object) -> str | None:
+        """Validate and normalize ISO to lowercase."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        val = str(v).strip().lower()
+        allowed_isos = {"pjm", "ercot", "caiso"}
+        if val not in allowed_isos:
+            raise ValueError(
+                f"ISO must be one of {sorted(allowed_isos)}, got '{v}'."
+            )
+        return val
+
+    @field_validator("lmp_zone", "lmp_node_ids", mode="before")
+    @classmethod
+    def validate_optional_lmp_string(cls, v: object) -> str | None:
+        """Normalize optional LMP string fields from CSV (empty/NaN -> None)."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return str(v).strip()
+
+    @field_validator("lmp_market", mode="before")
+    @classmethod
+    def validate_lmp_market(cls, v: object) -> str:
+        """Validate LMP market type."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return "DAY_AHEAD_HOURLY"
+        val = str(v).strip()
+        allowed_markets = {"DAY_AHEAD_HOURLY", "REAL_TIME_HOURLY"}
+        if val not in allowed_markets:
+            raise ValueError(
+                f"LMP Market must be one of {sorted(allowed_markets)}, got '{v}'."
+            )
+        return val
+
+    @field_validator("lmp_year", mode="before")
+    @classmethod
+    def validate_lmp_year(cls, v: object) -> int | None:
+        """Coerce empty/NaN LMP year to None."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return int(v)
+
+    @field_validator("ancillary_revenue_per_kw_year", mode="before")
+    @classmethod
+    def validate_ancillary_revenue(cls, v: object) -> float:
+        """Validate ancillary revenue is non-negative."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return 0.0
+        val = float(v)
+        if val < 0:
+            raise ValueError(
+                f"Ancillary Revenue ($/kW/yr) must be >= 0, got {val}."
+            )
+        return val
 
     @field_validator("ground_truth_data_file", mode="before")
     @classmethod
@@ -554,10 +633,10 @@ class SiteConfig(BaseModel):
                     "BESS Dispatch Required must be True when "
                     "BESS Optimization Required is True."
                 )
-            if not self.bill_calculation:
+            if not self.bill_calculation and self.dispatch_mode != "ftm":
                 raise ValueError(
                     "Bill Calculation must be True when "
-                    "BESS Optimization Required is True."
+                    "BESS Optimization Required is True (BTM mode)."
                 )
 
         if not self.bess_dispatch_required:
@@ -612,10 +691,10 @@ class SiteConfig(BaseModel):
                 "BESS Dispatch Required is True."
             )
 
-        if not self.bill_calculation:
+        if not self.bill_calculation and self.dispatch_mode != "ftm":
             raise ValueError(
-                "Bill Calculation must be True when BESS Dispatch Required is True. "
-                "BESS dispatch depends on rate structure and load profile."
+                "Bill Calculation must be True when BESS Dispatch Required is True "
+                "(BTM mode). BESS dispatch depends on rate structure and load profile."
             )
 
         # --- Optimization-specific validation ---
@@ -669,6 +748,22 @@ class SiteConfig(BaseModel):
                 raise ValueError(
                     f"BESS Duration Min ({self.bess_duration_min_hr} hr) must be less "
                     f"than BESS Duration Max ({self.bess_duration_max_hr} hr)."
+                )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_ftm_fields(self) -> "SiteConfig":
+        """Cross-validate FTM dispatch fields.
+
+        When dispatch_mode is 'ftm', validates that BESS dispatch is enabled.
+        When dispatch_mode is 'btm', LMP fields are ignored (no errors).
+        """
+        if self.dispatch_mode == "ftm":
+            if not self.bess_dispatch_required:
+                raise ValueError(
+                    "BESS Dispatch Required must be True when "
+                    "Dispatch Mode is 'ftm'."
                 )
 
         return self

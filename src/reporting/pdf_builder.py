@@ -28,6 +28,8 @@ from reportlab.platypus import (
 from src.bess.report_section import (
     build_bess_optimization_summary_rows,
     build_bess_summary_rows,
+    build_ftm_optimization_summary_rows,
+    build_ftm_summary_rows,
 )
 from src.utils.logger import setup_logger
 
@@ -279,6 +281,8 @@ def build_pdf(
     bess_heatmap_path: Optional[Path] = None,
     bess_dispatch_chart_path: Optional[Path] = None,
     bess_sizing: Optional[dict] = None,
+    ftm_economics: Optional[dict] = None,
+    lmp_summary: Optional[dict] = None,
 ) -> Optional[Path]:
     """Build a solar production analysis PDF report (3-5 pages).
 
@@ -301,6 +305,8 @@ def build_pdf(
         bess_heatmap_path: Optional path to dispatch heatmap chart PNG.
         bess_dispatch_chart_path: Optional path to dispatch profile chart PNG.
         bess_sizing: Optional dict from summary["bess_sizing"] for optimization layout.
+        ftm_economics: Optional dict from summary["ftm_economics"] for FTM revenue display.
+        lmp_summary: Optional dict from summary["lmp"] for FTM pricing zone display.
 
     Returns:
         The output_path on success, or None on failure.
@@ -456,7 +462,19 @@ def build_pdf(
             usable_width = PAGE_WIDTH - 2 * MARGIN
             bess_col_widths = [usable_width * 0.55, usable_width * 0.45]
 
-            if bess_sizing is not None:
+            is_ftm = ftm_economics is not None and lmp_summary is not None
+            if is_ftm:
+                combined = {
+                    "bess_dispatch": bess_dispatch,
+                    "lmp": lmp_summary,
+                    "ftm_economics": ftm_economics,
+                }
+                if bess_sizing is not None:
+                    combined["bess_sizing"] = bess_sizing
+                    bess_rows = build_ftm_optimization_summary_rows(combined)
+                else:
+                    bess_rows = build_ftm_summary_rows(combined)
+            elif bess_sizing is not None:
                 combined = {
                     "bess_sizing": bess_sizing,
                     "bess_dispatch": bess_dispatch,

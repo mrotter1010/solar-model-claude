@@ -27,8 +27,16 @@ from src.models.subhourly_correction import (
 )
 from src.models.timeseries_adjustment import apply_correction
 from src.outputs.output_writer import OutputWriter
-from src.bess.dispatch_runner import run_bess_dispatch
-from src.bess.sizing_optimizer import run_sizing_optimization
+from src.bess.dispatch_runner import run_bess_dispatch, run_ftm_dispatch
+from src.bess.sizing_optimizer import (
+    compute_ftm_bess_npv,
+    compute_ftm_project_economics,
+    compute_ftm_solar_revenue,
+    run_ftm_sizing_optimization,
+    run_sizing_optimization,
+)
+from src.lmp.client import fetch_lmp
+from src.lmp.zone_mapper import resolve_pricing_zone
 from src.rates.tou_mapper import get_month_ranges
 from src.rates.bill_runner import run_bill_calculation
 from src.reporting.report_generator import generate_report
@@ -571,8 +579,256 @@ class SolarModelingPipeline:
                         ],
                     }
 
-            # BESS sizing optimization (M14c)
+            # ============================================================
+            # FTM (front-of-meter) wholesale dispatch path
+            # ============================================================
             if (
+                site.dispatch_mode == "ftm"
+                and site.bess_dispatch_required
+                and result.hourly_data is not None
+            ):
+                try:
+                    # Compute production (independent of bill_calculation)
+                    shading_factor_ftm = 1 - site.shading_percent / 100
+                    ftm_production_kwh = (
+                        result.hourly_data["ac_gross"] * shading_factor_ftm
+                    ).tolist()
+
+                    # 1. Resolve pricing zone
+                    pricing_zone = resolve_pricing_zone(site)
+
+                    # 2. Fetch LMP data
+                    lmp_data = fetch_lmp(
+                        iso=pricing_zone.iso,
+                        zone=pricing_zone.zone_name,
+                        market=site.lmp_market,
+                        year=site.lmp_year,
+                    )
+
+                    # 3. Get load (parasitic, optional)
+                    ftm_load_kwh = None
+                    if bill_calc_result is not None:
+                        ftm_load_kwh = bill_calc_result.load_profile.hourly_kwh
+
+                    # 4. FTM sizing optimization or single dispatch
+                    if site.bess_optimization_required:
+                        sizing_result = run_ftm_sizing_optimization(
+                            site_config=site,
+                            production_kwh=ftm_production_kwh,
+                            lmp_data=lmp_data,
+                            load_kwh=ftm_load_kwh,
+                        )
+                        ftm_dispatch_result = sizing_result.dispatch_result
+                        ftm_project_economics = sizing_result.economics
+
+                        # Extract economics from sizing winner
+                        annual_solar_revenue = ftm_project_economics.solar_revenue or 0.0
+                        bess_arbitrage_revenue = ftm_project_economics.bess_arbitrage_revenue or 0.0
+                        ancillary_revenue = ftm_project_economics.ancillary_revenue or 0.0
+                        gross_revenue = ftm_project_economics.gross_revenue or 0.0
+                        ftm_bess_npv = ftm_project_economics.bess_npv
+
+                        # Build bess_sizing summary (same structure as BTM)
+                        summary["bess_sizing"] = {
+                            "optimal_power_mw": ftm_project_economics.optimal_power_mw,
+                            "optimal_duration_hr": ftm_project_economics.optimal_duration_hr,
+                            "optimal_capacity_kwh": ftm_project_economics.optimal_capacity_kwh,
+                            "bess_npv": ftm_project_economics.bess_npv,
+                            "total_project_npv": ftm_project_economics.total_project_npv,
+                            "system_lcoe_per_kwh": ftm_project_economics.system_lcoe_per_kwh,
+                            "total_installed_cost": ftm_project_economics.total_installed_cost,
+                            "solar_cost": ftm_project_economics.solar_cost,
+                            "bess_cost": ftm_project_economics.bess_cost,
+                            "total_annual_savings": ftm_project_economics.total_annual_savings,
+                            "bess_incremental_savings": ftm_project_economics.bess_incremental_savings,
+                            "annual_production_mwh": ftm_project_economics.annual_production_mwh,
+                            "lifetime_generation_mwh": ftm_project_economics.lifetime_generation_mwh,
+                            "combos_evaluated": ftm_project_economics.combos_evaluated,
+                            "project_lifetime_years": site.project_lifetime_years,
+                            "discount_rate_pct": site.discount_rate_pct,
+                            "rate_escalation_pct": site.rate_escalation_pct,
+                            "sweep_results": [
+                                {
+                                    "power_mw": c.power_mw,
+                                    "duration_hr": c.duration_hr,
+                                    "capacity_kwh": c.capacity_kwh,
+                                    "bess_npv": c.bess_npv,
+                                    "installed_cost": c.installed_cost,
+                                    "bess_incremental_savings": c.bess_incremental_savings,
+                                }
+                                for c in sizing_result.all_combos
+                            ],
+                        }
+
+                        logger.info(
+                            "FTM sizing complete for %s: winner=%.1f MW/%.1f hr, "
+                            "NPV=$%.0f (%d combos)",
+                            site.run_name,
+                            sizing_result.winner.power_mw,
+                            sizing_result.winner.duration_hr,
+                            ftm_bess_npv,
+                            len(sizing_result.all_combos),
+                        )
+                    else:
+                        # 5. Single FTM dispatch (no sizing sweep)
+                        ftm_dispatch_result = run_ftm_dispatch(
+                            site_config=site,
+                            production_kwh=ftm_production_kwh,
+                            lmp_data=lmp_data,
+                            load_kwh=ftm_load_kwh,
+                        )
+
+                        # 6. Compute FTM economics
+                        annual_solar_revenue = compute_ftm_solar_revenue(
+                            ftm_dispatch_result, lmp_data.prices
+                        )
+                        bess_arbitrage_revenue = (
+                            (ftm_dispatch_result.ftm_revenue or 0.0)
+                            - annual_solar_revenue
+                        )
+
+                        bess_power_kw = site.bess_power_mw * 1000
+                        bess_capacity_kwh = bess_power_kw * site.bess_duration_hr
+                        ftm_installed_cost = (
+                            site.bess_installed_cost_per_kwh * bess_capacity_kwh
+                        )
+
+                        ftm_bess_npv = compute_ftm_bess_npv(
+                            bess_arbitrage_revenue=bess_arbitrage_revenue,
+                            bess_installed_cost=ftm_installed_cost,
+                            bess_annual_degradation_pct=(
+                                ftm_dispatch_result.metrics.estimated_annual_degradation_pct
+                            ),
+                            revenue_escalation_pct=site.rate_escalation_pct,
+                            bess_opex_per_kw_year=site.bess_opex_per_kw_year,
+                            bess_power_kw=bess_power_kw,
+                            ancillary_revenue_per_kw_year=site.ancillary_revenue_per_kw_year,
+                            discount_rate_pct=site.discount_rate_pct,
+                            project_lifetime_years=site.project_lifetime_years,
+                        )
+
+                        ftm_project_economics = compute_ftm_project_economics(
+                            bess_npv=ftm_bess_npv,
+                            bess_installed_cost=ftm_installed_cost,
+                            bess_arbitrage_revenue=bess_arbitrage_revenue,
+                            bess_power_mw=site.bess_power_mw,
+                            bess_duration_hr=site.bess_duration_hr,
+                            bess_opex_per_kw_year=site.bess_opex_per_kw_year,
+                            ancillary_revenue_per_kw_year=site.ancillary_revenue_per_kw_year,
+                            site_config=site,
+                            annual_solar_revenue=annual_solar_revenue,
+                            annual_production_kwh=sum(ftm_production_kwh),
+                        )
+
+                        ancillary_revenue = (
+                            site.ancillary_revenue_per_kw_year * site.bess_power_mw * 1000
+                        )
+                        gross_revenue = (
+                            annual_solar_revenue
+                            + bess_arbitrage_revenue
+                            + ancillary_revenue
+                        )
+
+                        logger.info(
+                            "FTM dispatch complete for %s: revenue=$%.0f, "
+                            "solar=$%.0f, arbitrage=$%.0f, NPV=$%.0f",
+                            site.run_name,
+                            ftm_dispatch_result.ftm_revenue or 0.0,
+                            annual_solar_revenue,
+                            bess_arbitrage_revenue,
+                            ftm_bess_npv,
+                        )
+
+                    # 7. Build summary dicts (shared by sizing and single dispatch)
+                    summary["lmp"] = {
+                        "iso": pricing_zone.iso,
+                        "zone": pricing_zone.zone_name,
+                        "market": site.lmp_market,
+                        "year": lmp_data.year,
+                        "mean_lmp": lmp_data.mean_price,
+                        "min_lmp": lmp_data.min_price,
+                        "max_lmp": lmp_data.max_price,
+                    }
+
+                    summary["ftm_economics"] = {
+                        "annual_solar_revenue": annual_solar_revenue,
+                        "annual_bess_arbitrage_revenue": bess_arbitrage_revenue,
+                        "annual_ancillary_revenue": ancillary_revenue,
+                        "annual_gross_revenue": gross_revenue,
+                        "total_project_npv": ftm_project_economics.total_project_npv,
+                        "bess_npv": ftm_bess_npv,
+                        "solar_npv": ftm_project_economics.solar_npv,
+                        "system_lcoe_per_kwh": ftm_project_economics.system_lcoe_per_kwh,
+                        "total_installed_cost": ftm_project_economics.total_installed_cost,
+                    }
+
+                    summary["bess_dispatch"] = {
+                        "dispatch_mode": "ftm",
+                        "bess_power_mw": ftm_project_economics.optimal_power_mw,
+                        "bess_duration_hr": ftm_project_economics.optimal_duration_hr,
+                        "bess_capacity_kwh": ftm_dispatch_result.config.capacity_kwh,
+                        "bess_strategy": site.bess_strategy,
+                        "ftm_revenue": ftm_dispatch_result.ftm_revenue,
+                        "annual_cycles": ftm_dispatch_result.metrics.annual_cycles,
+                        "annual_throughput_kwh": ftm_dispatch_result.metrics.annual_throughput_kwh,
+                        "average_daily_cycles": ftm_dispatch_result.metrics.average_daily_cycles,
+                        "capacity_utilization_pct": ftm_dispatch_result.metrics.capacity_utilization_pct,
+                        "total_curtailed_kwh": ftm_dispatch_result.metrics.total_curtailed_kwh,
+                        "estimated_annual_degradation_pct": ftm_dispatch_result.metrics.estimated_annual_degradation_pct,
+                        "charging_source": ftm_dispatch_result.metrics.charging_source,
+                        "monthly_solver_status": ftm_dispatch_result.monthly_solve_status,
+                        "heatmap_data": ftm_dispatch_result.heatmap_data,
+                    }
+
+                    # Dispatch profile for the most active month
+                    _month_names = [
+                        "January", "February", "March", "April",
+                        "May", "June", "July", "August",
+                        "September", "October", "November", "December",
+                    ]
+                    hm = ftm_dispatch_result.heatmap_data
+                    month_activity = [
+                        sum(abs(v) for v in row) for row in hm
+                    ]
+                    peak_month = month_activity.index(max(month_activity))
+                    ftm_month_ranges = get_month_ranges()
+                    m_start, m_end = ftm_month_ranges[peak_month]
+                    n_days = (m_end - m_start) // 24
+
+                    avg_load = [0.0] * 24
+                    avg_solar = [0.0] * 24
+                    avg_battery = [0.0] * 24
+                    avg_export = [0.0] * 24
+                    for day in range(n_days):
+                        for h in range(24):
+                            idx = m_start + day * 24 + h
+                            avg_solar[h] += ftm_production_kwh[idx]
+                            hd = ftm_dispatch_result.hourly_dispatch[idx]
+                            avg_battery[h] += hd.discharge_kw - hd.charge_kw
+                            avg_export[h] += hd.solar_export_kw
+                    avg_solar = [v / n_days for v in avg_solar]
+                    avg_battery = [v / n_days for v in avg_battery]
+                    avg_export = [v / n_days for v in avg_export]
+
+                    summary["bess_dispatch"]["dispatch_profile_month"] = (
+                        _month_names[peak_month]
+                    )
+                    summary["bess_dispatch"]["dispatch_profile_load"] = avg_load
+                    summary["bess_dispatch"]["dispatch_profile_solar"] = avg_solar
+                    summary["bess_dispatch"]["dispatch_profile_battery"] = avg_battery
+                    summary["bess_dispatch"]["dispatch_profile_export"] = avg_export
+
+                except Exception as e:
+                    logger.warning(
+                        f"FTM dispatch failed for {site.run_name}: {e}"
+                    )
+
+            # ============================================================
+            # BTM (behind-the-meter) BESS paths — UNCHANGED
+            # ============================================================
+
+            # BESS sizing optimization (M14c)
+            elif (
                 site.bess_optimization_required
                 and site.bess_dispatch_required
                 and bill_calc_result is not None

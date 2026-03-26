@@ -24,6 +24,9 @@ class MonthSolveResult(BaseModel):
         peak_demand_flat: Peak kW for non-coincident (flat) demand.
         solver_status: PuLP solver status string.
         final_soc_kwh: Ending SOC of last hour (for month-to-month carryover).
+        solar_export_kw: Per-hour solar export in kW (FTM only).
+        grid_charge_kw: Per-hour grid charging in kW (FTM only).
+        ftm_revenue: Total FTM revenue for the month in $ (FTM only).
     """
 
     charge_kw: list[float]
@@ -36,6 +39,9 @@ class MonthSolveResult(BaseModel):
     peak_demand_flat: float
     solver_status: str
     final_soc_kwh: float
+    solar_export_kw: list[float] | None = None
+    grid_charge_kw: list[float] | None = None
+    ftm_revenue: float | None = None
 
 
 def solve_month(
@@ -50,11 +56,14 @@ def solve_month(
     nem_export_rates: list[float] | None = None,
     solar_only_charging: bool = False,
     grid_only_charging: bool = False,
+    dispatch_mode: str = "btm",
+    lmp_prices: list[float] | None = None,
 ) -> MonthSolveResult:
     """Solve the optimal BESS dispatch for a single month via LP.
 
-    Minimizes total electricity cost (energy charges + demand charges)
-    minus battery degradation cost, subject to physical battery constraints.
+    Supports two dispatch modes:
+    - **btm** (default): Minimizes total electricity cost (energy + demand charges).
+    - **ftm**: Maximizes wholesale revenue by selling solar/battery at LMP prices.
 
     Args:
         load_kw: Hourly load in kW for this month.
@@ -69,11 +78,24 @@ def solve_month(
         nem_export_rates: Per-hour export rate ($/kWh). None disables NEM.
         solar_only_charging: If True, battery can only charge from excess solar.
         grid_only_charging: If True, treat production as zero (grid-only BESS).
+        dispatch_mode: "btm" for behind-the-meter, "ftm" for front-of-the-meter.
+        lmp_prices: Hourly LMP prices in $/MWh (required when dispatch_mode="ftm").
 
     Returns:
         MonthSolveResult with optimal dispatch schedule and solver status.
     """
     n_hours = len(load_kw)
+
+    # --- FTM dispatch mode: early return with separate LP formulation ---
+    if dispatch_mode == "ftm":
+        return _solve_month_ftm(
+            load_kw=load_kw,
+            production_kw=production_kw,
+            config=config,
+            lmp_prices=lmp_prices or [0.0] * n_hours,
+            initial_soc_kwh=initial_soc_kwh,
+            solar_only_charging=solar_only_charging,
+        )
 
     # Grid-only mode: zero out production so battery only interacts with grid
     if grid_only_charging:
@@ -260,4 +282,161 @@ def solve_month(
         peak_demand_flat=peak_flat_val,
         solver_status=status,
         final_soc_kwh=final_soc,
+    )
+
+
+def _solve_month_ftm(
+    load_kw: list[float],
+    production_kw: list[float],
+    config: BESSConfig,
+    lmp_prices: list[float],
+    initial_soc_kwh: float,
+    solar_only_charging: bool = False,
+) -> MonthSolveResult:
+    """Solve FTM (front-of-the-meter) dispatch for a single month.
+
+    Maximizes wholesale revenue by selling available solar and battery
+    discharge at hourly LMP prices, minus grid charging cost and degradation.
+
+    Args:
+        load_kw: Hourly parasitic/auxiliary load in kW.
+        production_kw: Hourly solar production in kW.
+        config: BESS configuration with physical parameters.
+        lmp_prices: Hourly LMP prices in $/MWh.
+        initial_soc_kwh: Starting SOC for this month in kWh.
+        solar_only_charging: If True, battery can only charge from solar.
+
+    Returns:
+        MonthSolveResult with FTM-specific fields populated.
+    """
+    n_hours = len(load_kw)
+
+    # Precompute available solar after parasitic load
+    available_solar = [max(production_kw[t] - load_kw[t], 0.0) for t in range(n_hours)]
+
+    # Convert $/MWh to $/kWh for consistency with kW-scale variables
+    lmp_kwh = [p / 1000.0 for p in lmp_prices]
+
+    prob = pulp.LpProblem("bess_ftm_month", pulp.LpMaximize)
+
+    # --- Decision variables ---
+    charge = [
+        pulp.LpVariable(f"ftm_charge_{t}", 0, config.bess_power_kw)
+        for t in range(n_hours)
+    ]
+    discharge = [
+        pulp.LpVariable(f"ftm_discharge_{t}", 0, config.bess_power_kw)
+        for t in range(n_hours)
+    ]
+    soc = [
+        pulp.LpVariable(f"ftm_soc_{t}", config.min_soc_kwh, config.max_soc_kwh)
+        for t in range(n_hours)
+    ]
+    solar_export = [
+        pulp.LpVariable(f"ftm_solar_export_{t}", 0, available_solar[t])
+        for t in range(n_hours)
+    ]
+    battery_charge_from_solar = [
+        pulp.LpVariable(f"ftm_batt_solar_{t}", 0, available_solar[t])
+        for t in range(n_hours)
+    ]
+    grid_charge = [
+        pulp.LpVariable(f"ftm_grid_charge_{t}", 0, config.bess_power_kw)
+        for t in range(n_hours)
+    ]
+    curtailed = [
+        pulp.LpVariable(f"ftm_curtailed_{t}", 0)
+        for t in range(n_hours)
+    ]
+
+    # --- Objective: maximize revenue ---
+    # Revenue from solar export + battery discharge at LMP
+    obj = pulp.lpSum(
+        solar_export[t] * lmp_kwh[t] for t in range(n_hours)
+    )
+    obj += pulp.lpSum(
+        discharge[t] * lmp_kwh[t] for t in range(n_hours)
+    )
+    # Cost of grid charging at LMP
+    obj -= pulp.lpSum(
+        grid_charge[t] * lmp_kwh[t] for t in range(n_hours)
+    )
+    # Degradation cost penalty
+    obj -= config.degradation_cost_per_kwh * pulp.lpSum(
+        charge[t] + discharge[t] for t in range(n_hours)
+    )
+    # Tiebreaker: prefer using solar over curtailing (tiny penalty)
+    obj -= 1e-6 * pulp.lpSum(curtailed[t] for t in range(n_hours))
+
+    prob += obj
+
+    # --- Constraints ---
+    for t in range(n_hours):
+        # Solar allocation: all available solar goes somewhere
+        prob += (
+            solar_export[t] + battery_charge_from_solar[t] + curtailed[t]
+            == available_solar[t],
+            f"ftm_solar_alloc_{t}",
+        )
+
+        # Charge decomposition: total charge = solar charge + grid charge
+        prob += (
+            charge[t] == battery_charge_from_solar[t] + grid_charge[t],
+            f"ftm_charge_decomp_{t}",
+        )
+
+        # SOC continuity
+        prev_soc = initial_soc_kwh if t == 0 else soc[t - 1]
+        prob += (
+            soc[t]
+            == prev_soc
+            + charge[t] * config.charge_efficiency
+            - discharge[t] / config.discharge_efficiency,
+            f"ftm_soc_continuity_{t}",
+        )
+
+        # Solar-only charging constraint
+        if solar_only_charging:
+            prob += (
+                grid_charge[t] == 0,
+                f"ftm_solar_only_{t}",
+            )
+
+    # --- Solve ---
+    solver = pulp.PULP_CBC_CMD(msg=0)
+    prob.solve(solver)
+
+    status = pulp.LpStatus[prob.status]
+
+    # --- Extract results ---
+    charge_out = [charge[t].varValue or 0.0 for t in range(n_hours)]
+    discharge_out = [discharge[t].varValue or 0.0 for t in range(n_hours)]
+    soc_out = [soc[t].varValue or 0.0 for t in range(n_hours)]
+    curtailed_out = [curtailed[t].varValue or 0.0 for t in range(n_hours)]
+    solar_export_out = [solar_export[t].varValue or 0.0 for t in range(n_hours)]
+    grid_charge_out = [grid_charge[t].varValue or 0.0 for t in range(n_hours)]
+    final_soc = soc_out[-1] if soc_out else initial_soc_kwh
+
+    # Compute FTM revenue
+    ftm_revenue = sum(
+        solar_export_out[t] * lmp_kwh[t]
+        + discharge_out[t] * lmp_kwh[t]
+        - grid_charge_out[t] * lmp_kwh[t]
+        for t in range(n_hours)
+    )
+
+    return MonthSolveResult(
+        charge_kw=charge_out,
+        discharge_kw=discharge_out,
+        soc_kwh=soc_out,
+        net_load_kw=[0.0] * n_hours,
+        curtailed_kw=curtailed_out,
+        export_kw=[],
+        peak_demand_by_period={},
+        peak_demand_flat=0.0,
+        solver_status=status,
+        final_soc_kwh=final_soc,
+        solar_export_kw=solar_export_out,
+        grid_charge_kw=grid_charge_out,
+        ftm_revenue=ftm_revenue,
     )

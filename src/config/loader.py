@@ -75,6 +75,13 @@ COLUMN_MAP: dict[str, str] = {
     "BESS Power Max (MW)": "bess_power_max_mw",
     "BESS Duration Min (hr)": "bess_duration_min_hr",
     "BESS Duration Max (hr)": "bess_duration_max_hr",
+    "Dispatch Mode": "dispatch_mode",
+    "ISO": "iso",
+    "LMP Zone": "lmp_zone",
+    "LMP Node IDs": "lmp_node_ids",
+    "LMP Market": "lmp_market",
+    "LMP Year": "lmp_year",
+    "Ancillary Revenue ($/kW/yr)": "ancillary_revenue_per_kw_year",
 }
 
 

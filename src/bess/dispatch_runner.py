@@ -11,6 +11,7 @@ from src.bess.models import (
 )
 from src.bess.optimizer import solve_month
 from src.config.schema import SiteConfig
+from src.lmp.models import LMPData
 from src.rates.bill_calculator import calculate_bill, get_export_rate_for_hour
 from src.rates.models import BillResult, LoadProfile, RateSchedule
 from src.rates.tou_mapper import get_month_ranges, map_hours_to_periods
@@ -229,3 +230,114 @@ def run_bess_dispatch(
     )
 
     return dispatch_result, bill_comparison
+
+
+def run_ftm_dispatch(
+    site_config: SiteConfig,
+    production_kwh: list[float],
+    lmp_data: LMPData,
+    load_kwh: list[float] | None = None,
+) -> DispatchResult:
+    """Run full-year FTM (front-of-the-meter) dispatch optimization.
+
+    Maximizes wholesale revenue by selling solar production and battery
+    discharge at hourly LMP prices across 12 monthly LP solves.
+
+    Args:
+        site_config: Site configuration with BESS fields populated.
+        production_kwh: 8760 hourly solar production in kWh.
+        lmp_data: Hourly LMP price data (8760 values in $/MWh).
+        load_kwh: 8760 hourly parasitic/auxiliary load in kWh.
+            If None, zeros are used (pure solar+storage, no load).
+
+    Returns:
+        DispatchResult with ftm_revenue populated.
+    """
+    if load_kwh is None:
+        load_kwh = [0.0] * 8760
+
+    config = BESSConfig.from_site_config(site_config)
+    month_ranges = get_month_ranges()
+
+    all_hourly: list[HourlyDispatch] = []
+    monthly_statuses: list[str] = []
+    current_soc = config.min_soc_kwh
+    total_ftm_revenue = 0.0
+
+    for month_idx in range(12):
+        start, end = month_ranges[month_idx]
+        month_load = load_kwh[start:end]
+        month_prod = production_kwh[start:end]
+        month_lmp = lmp_data.prices[start:end]
+        n_hours = end - start
+
+        result = solve_month(
+            load_kw=month_load,
+            production_kw=month_prod,
+            config=config,
+            energy_rate_per_hour=[0.0] * n_hours,
+            demand_periods={},
+            demand_rates={},
+            flat_demand_rate=0.0,
+            initial_soc_kwh=current_soc,
+            dispatch_mode="ftm",
+            lmp_prices=month_lmp,
+            solar_only_charging=site_config.bess_solar_only_charging,
+        )
+
+        logger.info(
+            "FTM Month %d: status=%s, revenue=$%.2f, final_soc=%.1f kWh",
+            month_idx + 1,
+            result.solver_status,
+            result.ftm_revenue or 0.0,
+            result.final_soc_kwh,
+        )
+
+        monthly_statuses.append(result.solver_status)
+        current_soc = result.final_soc_kwh
+        total_ftm_revenue += result.ftm_revenue or 0.0
+
+        # Build hourly dispatch records with FTM fields
+        has_solar_export = result.solar_export_kw is not None
+        has_grid_charge = result.grid_charge_kw is not None
+        for h_idx in range(n_hours):
+            all_hourly.append(
+                HourlyDispatch(
+                    hour=start + h_idx,
+                    charge_kw=max(0.0, result.charge_kw[h_idx]),
+                    discharge_kw=max(0.0, result.discharge_kw[h_idx]),
+                    soc_kwh=max(0.0, result.soc_kwh[h_idx]),
+                    net_load_kw=result.net_load_kw[h_idx],
+                    curtailed_kw=max(0.0, result.curtailed_kw[h_idx]),
+                    solar_export_kw=(
+                        max(0.0, result.solar_export_kw[h_idx])
+                        if has_solar_export else 0.0
+                    ),
+                    grid_charge_kw=(
+                        max(0.0, result.grid_charge_kw[h_idx])
+                        if has_grid_charge else 0.0
+                    ),
+                )
+            )
+
+    dispatch_result = DispatchResult(
+        config=config,
+        hourly_dispatch=all_hourly,
+        monthly_solve_status=monthly_statuses,
+        ftm_revenue=total_ftm_revenue,
+    )
+
+    # Compute metrics and heatmap
+    charging_source = "solar_only" if site_config.bess_solar_only_charging else "any"
+    dispatch_result.metrics = compute_battery_metrics(
+        dispatch_result, charging_source=charging_source
+    )
+    dispatch_result.heatmap_data = compute_heatmap_data(dispatch_result)
+
+    logger.info(
+        "FTM dispatch complete: total_revenue=$%.2f, annual_cycles=%.1f",
+        total_ftm_revenue,
+        dispatch_result.metrics.annual_cycles,
+    )
+
+    return dispatch_result

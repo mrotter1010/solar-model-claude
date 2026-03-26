@@ -284,6 +284,28 @@ def save_run_to_db(
             load_type=site_config.load_type,
             annual_consumption_kwh=site_config.annual_consumption_kwh,
             peak_demand_kw=site_config.peak_demand_kw,
+            # FTM / wholesale dispatch inputs
+            dispatch_mode=(
+                site_config.dispatch_mode
+                if site_config.dispatch_mode == "ftm" else None
+            ),
+            iso=site_config.iso if site_config.dispatch_mode == "ftm" else None,
+            lmp_zone=(
+                site_config.lmp_zone
+                if site_config.dispatch_mode == "ftm" else None
+            ),
+            lmp_market=(
+                site_config.lmp_market
+                if site_config.dispatch_mode == "ftm" else None
+            ),
+            lmp_year=(
+                site_config.lmp_year
+                if site_config.dispatch_mode == "ftm" else None
+            ),
+            ancillary_revenue_per_kw_year=(
+                site_config.ancillary_revenue_per_kw_year
+                if site_config.dispatch_mode == "ftm" else None
+            ),
         )
         session.add(run_input)
 
@@ -311,6 +333,15 @@ def save_run_to_db(
             bill_savings=summary.get("bill_savings"),
             bess_dispatch=summary.get("bess_dispatch"),
             bess_sizing=summary.get("bess_sizing"),
+            # FTM / wholesale dispatch results (JSON strings)
+            lmp_data=(
+                json.dumps(summary["lmp"])
+                if "lmp" in summary else None
+            ),
+            ftm_economics=(
+                json.dumps(summary["ftm_economics"])
+                if "ftm_economics" in summary else None
+            ),
             timeseries_file_path=str(timeseries_path) if timeseries_path else None,
             report_file_path=str(report_path) if report_path else None,
             climate_file_path=str(climate_path) if climate_path else None,

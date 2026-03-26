@@ -230,6 +230,189 @@ def build_bess_optimization_summary_rows(summary: dict) -> list[list[str]]:
     return rows
 
 
+def build_ftm_summary_rows(summary: dict) -> list[list[str]]:
+    """Build summary table rows for FTM (front-of-meter) dispatch results.
+
+    Reads from summary["bess_dispatch"], summary["lmp"], and
+    summary["ftm_economics"] to build revenue-oriented rows appropriate
+    for wholesale/merchant plant analysis.
+
+    Args:
+        summary: Full pipeline summary dict containing "bess_dispatch",
+            "lmp", and "ftm_economics" keys.
+
+    Returns:
+        List of [label, value] string pairs for the PDF summary table.
+    """
+    bd = summary["bess_dispatch"]
+    lmp = summary["lmp"]
+    econ = summary["ftm_economics"]
+
+    rows = [
+        ["Front-of-Meter Battery Storage Summary", ""],
+        [
+            "Battery Size",
+            f"{bd['bess_power_mw']} MW / {bd['bess_duration_hr']} hr "
+            f"({bd['bess_capacity_kwh']:,.0f} kWh)",
+        ],
+        ["Strategy", "Energy Arbitrage"],
+        ["Dispatch Mode", "Front-of-Meter (FTM)"],
+        ["ISO / Pricing Zone", f"{lmp['iso'].upper()} \u2014 {lmp['zone']}"],
+        ["Market", str(lmp["market"])],
+        ["LMP Year", str(lmp["year"])],
+        ["Mean LMP", f"${lmp['mean_lmp']:.2f}/MWh"],
+    ]
+
+    rows.extend([
+        ["Annual Solar Revenue", _format_currency(econ["annual_solar_revenue"])],
+        [
+            "Annual BESS Arbitrage Revenue",
+            _format_currency(econ["annual_bess_arbitrage_revenue"]),
+        ],
+    ])
+
+    ancillary = econ.get("annual_ancillary_revenue", 0.0)
+    if ancillary > 0:
+        rows.append(["Annual Ancillary Revenue", _format_currency(ancillary)])
+
+    rows.extend([
+        ["Annual Gross Revenue", _format_currency(econ["annual_gross_revenue"])],
+    ])
+
+    solar_npv = econ.get("solar_npv")
+    npv_label = "Total Project NPV"
+    if solar_npv is None:
+        npv_label = "Total Project NPV (BESS only)"
+    rows.extend([
+        [npv_label, _format_currency(econ["total_project_npv"])],
+        ["BESS NPV", _format_currency(econ["bess_npv"])],
+    ])
+
+    lcoe = econ.get("system_lcoe_per_kwh")
+    if lcoe is not None:
+        rows.append(["System LCOE", f"${lcoe:.4f}/kWh"])
+    else:
+        rows.append([
+            "System LCOE",
+            "N/A \u2014 solar cost inputs not provided",
+        ])
+
+    # Dispatch metrics
+    rows.extend([
+        ["Annual Cycles", f"{bd['annual_cycles']:.1f}"],
+        [
+            "Capacity Utilization",
+            f"{bd['capacity_utilization_pct']:.1f}%",
+        ],
+        [
+            "Est. Annual Degradation",
+            f"{bd['estimated_annual_degradation_pct']:.2f}%",
+        ],
+        [
+            "Curtailed Energy",
+            f"{bd['total_curtailed_kwh']:,.0f} kWh",
+        ],
+    ])
+
+    return rows
+
+
+def build_ftm_optimization_summary_rows(summary: dict) -> list[list[str]]:
+    """Build summary table rows for FTM sizing optimization results.
+
+    Used when the pipeline ran FTM sizing optimization. Reads from
+    summary["bess_sizing"], summary["bess_dispatch"], summary["lmp"],
+    and summary["ftm_economics"].
+
+    Args:
+        summary: Full pipeline summary dict containing "bess_sizing",
+            "bess_dispatch", "lmp", and "ftm_economics" keys.
+
+    Returns:
+        List of [label, value] string pairs for the PDF summary table.
+    """
+    bs = summary["bess_sizing"]
+    bd = summary.get("bess_dispatch", {})
+    lmp = summary["lmp"]
+    econ = summary["ftm_economics"]
+
+    rows = [
+        ["FTM Battery Storage \u2014 Sizing Optimization", ""],
+        [
+            "Optimal Battery Size",
+            f"{bs['optimal_power_mw']:.1f} MW / {bs['optimal_duration_hr']:.1f} hr "
+            f"({bs['optimal_capacity_kwh']:,.0f} kWh)",
+        ],
+        ["Strategy", "Energy Arbitrage"],
+        ["Dispatch Mode", "Front-of-Meter (FTM)"],
+        ["ISO / Pricing Zone", f"{lmp['iso'].upper()} \u2014 {lmp['zone']}"],
+        ["Market", str(lmp["market"])],
+        ["LMP Year", str(lmp["year"])],
+        ["Mean LMP", f"${lmp['mean_lmp']:.2f}/MWh"],
+    ]
+
+    # Revenue rows
+    rows.extend([
+        ["Annual Solar Revenue", _format_currency(econ["annual_solar_revenue"])],
+        [
+            "Annual BESS Arbitrage Revenue",
+            _format_currency(econ["annual_bess_arbitrage_revenue"]),
+        ],
+    ])
+
+    ancillary = econ.get("annual_ancillary_revenue", 0.0)
+    if ancillary > 0:
+        rows.append(["Annual Ancillary Revenue", _format_currency(ancillary)])
+
+    rows.extend([
+        ["Annual Gross Revenue", _format_currency(econ["annual_gross_revenue"])],
+    ])
+
+    solar_npv = econ.get("solar_npv")
+    npv_label = "Total Project NPV"
+    if solar_npv is None:
+        npv_label = "Total Project NPV (BESS only)"
+    rows.extend([
+        [npv_label, _format_currency(econ["total_project_npv"])],
+        ["BESS NPV", _format_currency(econ["bess_npv"])],
+    ])
+
+    lcoe = econ.get("system_lcoe_per_kwh")
+    if lcoe is not None:
+        rows.append(["System LCOE", f"${lcoe:.4f}/kWh"])
+    else:
+        rows.append([
+            "System LCOE",
+            "N/A \u2014 solar cost inputs not provided",
+        ])
+
+    rows.extend([
+        ["Total Installed Cost", f"${econ['total_installed_cost']:,.0f}"],
+        ["Combos Evaluated", str(bs["combos_evaluated"])],
+        [
+            "Project Lifetime",
+            f"{bs['project_lifetime_years']} years",
+        ],
+        ["Discount Rate", f"{bs['discount_rate_pct']}%"],
+        ["Rate Escalation", f"{bs['rate_escalation_pct']}%"],
+    ])
+
+    # Dispatch metrics
+    rows.extend([
+        ["Annual Cycles", f"{bd.get('annual_cycles', 0):.1f}"],
+        [
+            "Capacity Utilization",
+            f"{bd.get('capacity_utilization_pct', 0):.1f}%",
+        ],
+        [
+            "Est. Annual Degradation",
+            f"{bd.get('estimated_annual_degradation_pct', 0):.2f}%",
+        ],
+    ])
+
+    return rows
+
+
 def generate_dispatch_profile_chart(
     load_kwh: list[float],
     solar_kwh: list[float],

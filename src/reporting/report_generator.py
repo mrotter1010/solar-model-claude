@@ -135,6 +135,12 @@ def generate_report(
         bess_sizing = (
             summary.get("bess_sizing") if summary is not None else None
         )
+        ftm_economics = (
+            summary.get("ftm_economics") if summary is not None else None
+        )
+        lmp_summary = (
+            summary.get("lmp") if summary is not None else None
+        )
 
         result = build_pdf(
             output_path=pdf_path,
@@ -146,6 +152,8 @@ def generate_report(
             bess_heatmap_path=bess_heatmap_path,
             bess_dispatch_chart_path=bess_dispatch_chart_path,
             bess_sizing=bess_sizing,
+            ftm_economics=ftm_economics,
+            lmp_summary=lmp_summary,
         )
 
         if result is None:

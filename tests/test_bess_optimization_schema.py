@@ -437,5 +437,5 @@ class TestColumnMapEntries:
         assert COLUMN_MAP[csv_name] == field_name
 
     def test_column_map_total_count(self) -> None:
-        """COLUMN_MAP should have 63 entries (52 original + 11 new)."""
-        assert len(COLUMN_MAP) == 63
+        """COLUMN_MAP should have 70 entries (63 prior + 7 FTM/M14e)."""
+        assert len(COLUMN_MAP) == 70
