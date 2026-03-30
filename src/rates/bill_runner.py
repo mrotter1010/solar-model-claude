@@ -31,6 +31,7 @@ class BillCalculationResult(NamedTuple):
 def run_bill_calculation(
     site_config: SiteConfig,
     hourly_production_kwh: list[float],
+    rate_schedule: RateSchedule | None = None,
 ) -> BillCalculationResult | None:
     """Run bill calculation for a site if enabled.
 
@@ -42,6 +43,9 @@ def run_bill_calculation(
         site_config: Site configuration with bill calculation fields.
         hourly_production_kwh: 8760 hourly solar production values in kWh
             (post-shading, net AC output).
+        rate_schedule: Pre-built RateSchedule to use directly. When
+            provided, skips file-path and URDB loading. Useful for
+            API callers that supply an inline rate.
 
     Returns:
         BillCalculationResult with savings, rate schedule, and load profile,
@@ -52,7 +56,14 @@ def run_bill_calculation(
 
     try:
         # Load rate schedule
-        if site_config.rate_file_path:
+        if rate_schedule is not None:
+            rate = rate_schedule
+            logger.info(
+                "Using provided rate schedule: %s / %s",
+                rate.utility_name,
+                rate.tariff_name,
+            )
+        elif site_config.rate_file_path:
             rate = load_rate_file(Path(site_config.rate_file_path))
             logger.info(
                 "Loaded rate from file: %s / %s",

@@ -373,8 +373,9 @@ class TestRunClimatePipeline:
             return df.copy(), meta
         mock_apply.side_effect = fake_apply
 
+        input_sites = load_config(SINGLE_ROW_CSV)
         sites, _soiling_lookup, _bias_lookup = run_climate_data_pipeline(
-            SINGLE_ROW_CSV, year=2024,
+            input_sites, year=2024,
         )
 
         assert len(sites) == 1

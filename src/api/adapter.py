@@ -2,6 +2,7 @@
 
 import re
 from datetime import datetime
+from pathlib import Path
 
 from src.api.schemas.common import Losses
 from src.api.schemas.requests import (
@@ -156,14 +157,27 @@ def bill_savings_request_to_site_config(
         resource=request.resource,
     )
     bill = request.bill
+
+    # Rate source: inline RateSchedule object or file/URDB lookup
+    rate_file_path = bill.rate_file_path
+    utility_name = bill.utility_name
+    tariff_name = bill.tariff_name
+    rate_schedule = None
+    if bill.rate is not None:
+        rate_schedule = bill.rate
+        rate_file_path = None
+        utility_name = None
+        tariff_name = None
+
     return SiteConfig(
         **kwargs,
         # Enable bill calculation
         bill_calculation=True,
         # Rate source
-        rate_file_path=bill.rate_file_path,
-        utility_name=bill.utility_name,
-        tariff_name=bill.tariff_name,
+        rate_file_path=rate_file_path,
+        utility_name=utility_name,
+        tariff_name=tariff_name,
+        rate_schedule=rate_schedule,
         # Load source
         load_profile_path=bill.load_profile_path,
         load_type=bill.load_type,
@@ -212,9 +226,18 @@ def bess_request_to_site_config(request: BESSRequest) -> SiteConfig:
     if request.bill is not None:
         bill = request.bill
         kwargs["bill_calculation"] = True
-        kwargs["rate_file_path"] = bill.rate_file_path
-        kwargs["utility_name"] = bill.utility_name
-        kwargs["tariff_name"] = bill.tariff_name
+
+        # Rate source: inline RateSchedule object or file/URDB lookup
+        if bill.rate is not None:
+            kwargs["rate_schedule"] = bill.rate
+            kwargs["rate_file_path"] = None
+            kwargs["utility_name"] = None
+            kwargs["tariff_name"] = None
+        else:
+            kwargs["rate_file_path"] = bill.rate_file_path
+            kwargs["utility_name"] = bill.utility_name
+            kwargs["tariff_name"] = bill.tariff_name
+
         kwargs["load_profile_path"] = bill.load_profile_path
         kwargs["load_type"] = bill.load_type
         kwargs["annual_consumption_kwh"] = bill.annual_consumption_kwh

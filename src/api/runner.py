@@ -1,7 +1,5 @@
-"""Pipeline runner: executes the solar modeling pipeline via a temp CSV shim."""
+"""Pipeline runner: executes the solar modeling pipeline for the API layer."""
 
-import csv
-import tempfile
 from pathlib import Path
 
 from src.api.schemas.common import LossSummary, ProductionSummary
@@ -22,76 +20,25 @@ from src.api.schemas.responses import (
     SlopeDistributionBucket,
     SlopeSummary,
 )
-from src.config.loader import COLUMN_MAP
 from src.config.schema import SiteConfig
 from src.pipeline import SolarModelingPipeline
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-# Reverse map: SiteConfig field name → CSV column header
-_FIELD_TO_COLUMN: dict[str, str] = {
-    field_name: csv_col for csv_col, field_name in COLUMN_MAP.items()
-}
-
 
 def run_production(site_config: SiteConfig, output_dir: Path) -> dict:
-    """Run the production pipeline via temp CSV shim.
-
-    Creates a temporary single-row CSV matching the pipeline's expected
-    input format, runs the full pipeline, and returns the raw results dict.
+    """Run the production pipeline for a single site config.
 
     Args:
         site_config: Validated site configuration from the adapter.
         output_dir: Directory for pipeline output artifacts.
 
     Returns:
-        Raw results dict from SolarModelingPipeline.run().
+        Raw results dict from SolarModelingPipeline.run_from_configs().
     """
-    # Build CSV column headers and values from SiteConfig fields
-    headers: list[str] = []
-    values: list[str] = []
-
-    for field_name, csv_col in _FIELD_TO_COLUMN.items():
-        raw_value = getattr(site_config, field_name, None)
-        headers.append(csv_col)
-        values.append(_format_csv_value(raw_value))
-
-    temp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False, newline=""
-        ) as tmp:
-            temp_path = tmp.name
-            writer = csv.writer(tmp)
-            writer.writerow(headers)
-            writer.writerow(values)
-
-        logger.info(f"Temp CSV written: {temp_path}")
-        pipeline = SolarModelingPipeline(output_dir=output_dir)
-        return pipeline.run(csv_path=Path(temp_path))
-    finally:
-        if temp_path is not None:
-            Path(temp_path).unlink(missing_ok=True)
-            logger.debug(f"Temp CSV cleaned up: {temp_path}")
-
-
-def _format_csv_value(value: object) -> str:
-    """Convert a Python value to its CSV string representation.
-
-    Args:
-        value: Any SiteConfig field value.
-
-    Returns:
-        String suitable for CSV output.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, Path):
-        return str(value)
-    return str(value)
+    pipeline = SolarModelingPipeline(output_dir=output_dir)
+    return pipeline.run_from_configs([site_config])
 
 
 # ---------------------------------------------------------------------------
@@ -432,32 +379,40 @@ def extract_bess_response(
 # ---------------------------------------------------------------------------
 
 
-def run_buildability(site_config: SiteConfig) -> "BuildabilityResult":
+def run_buildability(
+    site_config: SiteConfig,
+    include_maps: bool = False,
+    output_dir: Path | None = None,
+) -> "BuildabilityResult":
     """Run buildability analysis directly from a SiteConfig.
 
     Unlike production/bill/BESS runs, buildability is a standalone module
-    that doesn't go through the CSV pipeline. This calls the analyzer
-    directly.
+    that doesn't go through the CSV pipeline. This constructs a
+    BuildabilityConfig and calls the analyzer directly.
 
     Args:
         site_config: SiteConfig with buildable_land_assessment=True.
+        include_maps: When True, pass output_dir to the analyzer so
+            it generates PNG map figures.
+        output_dir: Directory for output artifacts (used when
+            include_maps is True).
 
     Returns:
         BuildabilityResult from the analyzer.
-
-    Raises:
-        RuntimeError: If the analyzer returns None (shouldn't happen
-            since we set buildable_land_assessment=True).
     """
-    from src.buildability.analyzer import run_buildability_from_site
+    from src.buildability.analyzer import run_buildability_analysis
+    from src.buildability.models import BuildabilityConfig
 
-    result = run_buildability_from_site(site_config)
-    if result is None:
-        raise RuntimeError(
-            "Buildability analyzer returned None despite "
-            "buildable_land_assessment=True"
-        )
-    return result
+    config = BuildabilityConfig(
+        latitude=site_config.latitude,
+        longitude=site_config.longitude,
+        kmz_file_path=site_config.kmz_file_path,
+        radius_km=site_config.analysis_radius_km,
+    )
+
+    if include_maps and output_dir is not None:
+        return run_buildability_analysis(config, output_dir=output_dir)
+    return run_buildability_analysis(config)
 
 
 def extract_buildability_response(

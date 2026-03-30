@@ -1,0 +1,36 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    environment:
+      - DATABASE_URL=postgresql://solar:solar@timescaledb:5432/solar_model
+      - API_KEY=${API_KEY:-}
+      - NSRDB_API_KEY=${NSRDB_API_KEY:-}
+      - NSRDB_API_EMAIL=${NSRDB_API_EMAIL:-}
+      - UPLOAD_DIR=/app/uploads
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=solar
+      - POSTGRES_PASSWORD=solar
+      - POSTGRES_DB=solar_model
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U solar -d solar_model"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

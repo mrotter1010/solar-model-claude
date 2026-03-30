@@ -1,17 +1,13 @@
-"""Tests for the pipeline runner: CSV shim mechanics and response extraction."""
+"""Tests for the pipeline runner: response extraction logic."""
 
-import csv
 from pathlib import Path
 
 import pytest
 
 from src.api.runner import (
-    _FIELD_TO_COLUMN,
     _LOSS_KEY_MAP,
-    _format_csv_value,
     extract_production_response,
 )
-from src.config.loader import COLUMN_MAP
 from src.config.schema import SiteConfig
 
 
@@ -48,116 +44,6 @@ def _make_site_config(**overrides: object) -> SiteConfig:
     }
     defaults.update(overrides)
     return SiteConfig(**defaults)
-
-
-class TestReverseColumnMap:
-    """Verify reverse COLUMN_MAP generation covers all CSV-mapped fields."""
-
-    def test_all_column_map_entries_have_reverse(self) -> None:
-        """Every SiteConfig field in COLUMN_MAP produces a valid reverse entry."""
-        for csv_col, field_name in COLUMN_MAP.items():
-            assert field_name in _FIELD_TO_COLUMN, (
-                f"Field '{field_name}' (CSV: '{csv_col}') missing from reverse map"
-            )
-            assert _FIELD_TO_COLUMN[field_name] == csv_col
-
-    def test_reverse_map_size_matches_column_map(self) -> None:
-        """Reverse map has the same number of entries as COLUMN_MAP."""
-        assert len(_FIELD_TO_COLUMN) == len(COLUMN_MAP)
-
-
-class TestFormatCsvValue:
-    """Test value formatting for CSV output."""
-
-    def test_none_becomes_empty(self) -> None:
-        assert _format_csv_value(None) == ""
-
-    def test_bool_true_becomes_TRUE(self) -> None:
-        assert _format_csv_value(True) == "TRUE"
-
-    def test_bool_false_becomes_FALSE(self) -> None:
-        assert _format_csv_value(False) == "FALSE"
-
-    def test_path_becomes_string(self) -> None:
-        assert _format_csv_value(Path("/tmp/test.csv")) == "/tmp/test.csv"
-
-    def test_float_becomes_string(self) -> None:
-        assert _format_csv_value(13.5) == "13.5"
-
-    def test_int_becomes_string(self) -> None:
-        assert _format_csv_value(42) == "42"
-
-    def test_string_passthrough(self) -> None:
-        assert _format_csv_value("hello") == "hello"
-
-
-class TestCsvShimMechanics:
-    """Test that a SiteConfig can be serialized to a CSV row and read back."""
-
-    def test_csv_roundtrip_headers_and_values(self, tmp_path: Path) -> None:
-        """Write a SiteConfig to CSV, read it back, and verify key fields."""
-        config = _make_site_config()
-
-        # Build header/value rows the same way runner.py does
-        headers: list[str] = []
-        values: list[str] = []
-        for field_name, csv_col in _FIELD_TO_COLUMN.items():
-            raw_value = getattr(config, field_name, None)
-            headers.append(csv_col)
-            values.append(_format_csv_value(raw_value))
-
-        # Write to temp CSV
-        csv_path = tmp_path / "test_shim.csv"
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(headers)
-            writer.writerow(values)
-
-        # Read back
-        with open(csv_path, "r") as f:
-            reader = csv.DictReader(f)
-            row = next(reader)
-
-        # Verify key fields round-trip correctly
-        assert row["Run Name"] == "test_run_001"
-        assert row["Site Name"] == "TestSite"
-        assert row["Customer"] == "API"
-        assert row["Latitude"] == "33.45"
-        assert row["Longitude"] == "-112.07"
-        assert row["DC Size (MW)"] == "13.0"
-        assert row["AC Installed (MW)"] == "10.0"
-        assert row["AC POI (MW)"] == "10.0"
-        assert row["Racking"] == "tracker"
-        assert row["Tilt"] == "60.0"
-        assert row["Azimuth"] == "180.0"
-        assert row["Panel Model"] == "CSI Solar Co. Ltd. CS3U-355P"
-        assert row["Bifacial"] == "FALSE"
-        assert row["GCR"] == "0.35"
-        assert row["Report"] == "TRUE"
-
-    def test_all_column_map_fields_present_in_csv(self, tmp_path: Path) -> None:
-        """Every COLUMN_MAP column appears in the CSV header."""
-        config = _make_site_config()
-
-        headers: list[str] = []
-        values: list[str] = []
-        for field_name, csv_col in _FIELD_TO_COLUMN.items():
-            raw_value = getattr(config, field_name, None)
-            headers.append(csv_col)
-            values.append(_format_csv_value(raw_value))
-
-        csv_path = tmp_path / "test_headers.csv"
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(headers)
-            writer.writerow(values)
-
-        with open(csv_path, "r") as f:
-            reader = csv.DictReader(f)
-            row = next(reader)
-
-        for csv_col in COLUMN_MAP:
-            assert csv_col in row, f"CSV column '{csv_col}' missing from output"
 
 
 class TestExtractProductionResponse:

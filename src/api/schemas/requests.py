@@ -13,6 +13,7 @@ from src.api.schemas.common import (
     ResourceOverrides,
     SystemDesign,
 )
+from src.rates.models import RateSchedule
 
 
 class ProductionRequest(BaseModel):
@@ -97,3 +98,15 @@ class BuildabilityRequest(BaseModel):
 
     site: Location
     buildability: BuildabilityConfig | None = None
+    include_maps: bool = False
+
+
+class RateBuildRequest(BaseModel):
+    """Request body for building a rate schedule via the API.
+
+    Wraps a full RateSchedule (reusing all Pydantic validation from
+    src/rates/models.py) plus an option to persist the result to disk.
+    """
+
+    rate: RateSchedule
+    save_to_disk: bool = False

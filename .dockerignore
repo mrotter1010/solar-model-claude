@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov/
+
+# Virtual envs
+venv/
+env/
+.conda/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Research data (not needed in production image)
+research/
+
+# Test outputs
+outputs/
+test_results/
+
+# Docker files (no need to copy themselves)
+Dockerfile
+docker-compose.yml
+.dockerignore
+.env
+.env.example

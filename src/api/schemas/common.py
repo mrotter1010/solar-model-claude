@@ -7,6 +7,8 @@ objects for the pipeline.
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.rates.models import RateSchedule
+
 
 # ---------------------------------------------------------------------------
 # Request models
@@ -107,6 +109,7 @@ class BillConfig(BaseModel):
     rate_file_path: str | None = None
     utility_name: str | None = None
     tariff_name: str | None = None
+    rate: RateSchedule | None = None
     load_profile_path: str | None = None
     load_type: str | None = None
     annual_consumption_kwh: float | None = Field(default=None, gt=0)
@@ -114,19 +117,37 @@ class BillConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_rate_source(self) -> "BillConfig":
-        """Validate exactly one rate source is provided."""
+        """Validate exactly one rate source is provided.
+
+        Three mutually exclusive rate sources:
+        - rate: inline RateSchedule object
+        - rate_file_path: path to a rate JSON file on disk
+        - utility_name + tariff_name: OpenEI URDB lookup
+        """
         has_rate_file = self.rate_file_path is not None
         has_openei = self.utility_name is not None or self.tariff_name is not None
+        has_inline = self.rate is not None
 
         if has_rate_file and has_openei:
             raise ValueError(
                 "Cannot specify both rate_file_path and "
                 "utility_name/tariff_name. Use one rate source."
             )
-        if not has_rate_file and not has_openei:
+        if has_inline and has_rate_file:
             raise ValueError(
-                "No rate source specified. Provide either rate_file_path "
-                "or utility_name + tariff_name."
+                "Cannot specify both rate (inline) and "
+                "rate_file_path. Use one rate source."
+            )
+        if has_inline and has_openei:
+            raise ValueError(
+                "Cannot specify both rate (inline) and "
+                "utility_name/tariff_name. Use one rate source."
+            )
+        if not has_rate_file and not has_openei and not has_inline:
+            raise ValueError(
+                "No rate source specified. Provide either "
+                "rate (inline), rate_file_path, or "
+                "utility_name + tariff_name."
             )
         if has_openei:
             if self.utility_name is None or self.tariff_name is None:

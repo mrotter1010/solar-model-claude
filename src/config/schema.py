@@ -6,9 +6,10 @@ from pathlib import Path
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.rates.load_profile import get_available_building_types
+from src.rates.models import RateSchedule
 from src.utils.exceptions import ConfigValidationError
 from src.utils.logger import setup_logger
-from src.rates.load_profile import get_available_building_types
 
 logger = setup_logger(__name__)
 
@@ -125,6 +126,7 @@ class SiteConfig(BaseModel):
     load_type: str | None = None
     annual_consumption_kwh: float | None = None
     peak_demand_kw: float | None = None
+    rate_schedule: RateSchedule | None = Field(default=None, exclude=True)
 
     @field_validator("resource_file_path", mode="before")
     @classmethod
@@ -535,6 +537,7 @@ class SiteConfig(BaseModel):
         # --- Rate source validation ---
         has_rate_file = self.rate_file_path is not None
         has_openei = self.utility_name is not None or self.tariff_name is not None
+        has_inline_rate = self.rate_schedule is not None
 
         if has_rate_file and has_openei:
             raise ValueError(
@@ -542,7 +545,7 @@ class SiteConfig(BaseModel):
                 "Use one rate source."
             )
 
-        if not has_rate_file and not has_openei:
+        if not has_rate_file and not has_openei and not has_inline_rate:
             raise ValueError(
                 "No rate source specified. Provide either Rate File Path "
                 "or Utility Name + Tariff Name."

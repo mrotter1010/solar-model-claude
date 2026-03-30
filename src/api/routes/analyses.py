@@ -29,8 +29,10 @@ from src.api.schemas.responses import (
     BESSResponse,
     BillSavingsResponse,
     BuildabilityResponse,
+    LoadTypesResponse,
     ProductionResponse,
 )
+from src.rates.load_profile import get_available_building_types
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -162,13 +164,15 @@ def run_buildability_analysis_endpoint(
     """
     try:
         site_config = buildability_request_to_site_config(request)
-
-        result = run_buildability(site_config)
-        response = extract_buildability_response(result, site_config.run_name)
-
-        # Persist response JSON for future GET retrieval
         output_dir = Path("outputs/api") / site_config.run_name
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        result = run_buildability(
+            site_config,
+            include_maps=request.include_maps,
+            output_dir=output_dir,
+        )
+        response = extract_buildability_response(result, site_config.run_name)
         results_path = output_dir / "results.json"
         results_path.write_text(
             response.model_dump_json(indent=2), encoding="utf-8"
@@ -187,3 +191,10 @@ def run_buildability_analysis_endpoint(
             status_code=502,
             detail=f"Buildability analysis failed: {exc}",
         ) from exc
+
+
+@router.get("/load-types", response_model=LoadTypesResponse)
+def list_load_types() -> LoadTypesResponse:
+    """List available DOE reference building types for load profile modeling."""
+    types = get_available_building_types()
+    return LoadTypesResponse(count=len(types), load_types=types)

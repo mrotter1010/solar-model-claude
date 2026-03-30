@@ -3,6 +3,7 @@
 from pydantic import BaseModel
 
 from src.api.schemas.common import LossSummary, ProductionSummary
+from src.rates.models import RateSchedule
 
 
 class FileLinks(BaseModel):
@@ -200,6 +201,33 @@ class BuildabilityResponse(BaseModel):
     class_breakdown: list[LandCoverClass]
     slope: SlopeSummary
     figure_paths: dict[str, str]
+
+
+class LoadTypesResponse(BaseModel):
+    """Response body listing available DOE reference building types."""
+
+    count: int
+    load_types: list[str]
+
+
+class RateBuildResponse(BaseModel):
+    """Response body for a built rate schedule.
+
+    Contains the full validated RateSchedule plus an optional
+    file path when save_to_disk was requested.
+    """
+
+    rate: RateSchedule
+    file_path: str | None = None
+
+
+class FileUploadResponse(BaseModel):
+    """Response body for a successful file upload."""
+
+    file_type: str
+    filename: str
+    path: str
+    size_bytes: int
 
 
 class ErrorResponse(BaseModel):

@@ -191,8 +191,8 @@ class RateSchedule(BaseModel):
     @field_validator("source")
     @classmethod
     def validate_source(cls, v: str) -> str:
-        """Validate source is manual or openei."""
-        allowed = {"manual", "openei"}
+        """Validate source is manual, openei, or api."""
+        allowed = {"manual", "openei", "api"}
         if v not in allowed:
             raise ValueError(f"source must be one of {sorted(allowed)}, got '{v}'")
         return v

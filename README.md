@@ -5,18 +5,23 @@ Python-based solar production modeling tool using NREL's PySAM detailed photovol
 ## Pipeline Overview
 
 ```
-CSV Input
-  → Config validation (Pydantic)
-  → Climate data fetch (NSRDB v4.0.0 or Solcast TMY) + ERA5 snow/precip
-  → NSRDB bias correction (ML, v1)
-  → PySAM detailed PV simulation (CEC Performance Model)
-  → Subhourly clipping correction (ML, v2)
-  → Shading haircut
-  → Bill calculation (TOU energy + demand charges, NEM export credits, savings analysis)
-  → BESS dispatch optimization (LP-based, PuLP/CBC; NEM/ITC/grid-only modes, if enabled)
-  → FTM wholesale dispatch (LMP-based revenue optimization, if dispatch_mode=ftm)
-  → Buildable land assessment (NLCD land cover + 3DEP slope, if enabled)
-  → Output: 8760 timeseries CSV + PDF report + database write
+CSV Input                              JSON API Request
+  → Config validation (Pydantic)         → FastAPI (auth, validation)
+  → pipeline.run()                       → adapter → SiteConfig
+  │                                      │
+  └──────────┬───────────────────────────┘
+             ▼
+    pipeline.run_from_configs([SiteConfig, ...])
+      → Climate data fetch (NSRDB v4.0.0 or Solcast TMY) + ERA5 snow/precip
+      → NSRDB bias correction (ML, v1)
+      → PySAM detailed PV simulation (CEC Performance Model)
+      → Subhourly clipping correction (ML, v2)
+      → Shading haircut
+      → Bill calculation (TOU energy + demand charges, NEM export credits, savings analysis)
+      → BESS dispatch optimization (LP-based, PuLP/CBC; NEM/ITC/grid-only modes, if enabled)
+      → FTM wholesale dispatch (LMP-based revenue optimization, if dispatch_mode=ftm)
+      → Buildable land assessment (NLCD land cover + 3DEP slope, if enabled)
+      → Output: 8760 timeseries CSV + PDF report + database write
 ```
 
 ### Step-by-step
@@ -253,6 +258,13 @@ export PJM_API_KEY="your-pjm-api-key"
 
 Get a key at [https://dataminer2.pjm.com/](https://dataminer2.pjm.com/). A default key is included but has lower rate limits (6 req/min). ERCOT and CAISO do not require API keys.
 
+### API Environment Variables
+
+```bash
+export API_KEY="your-api-key"          # Optional — auth disabled if unset
+export UPLOAD_DIR="uploads"            # Default: uploads
+```
+
 ### CEC Equipment Databases
 
 Module and inverter parameters are loaded from:
@@ -260,6 +272,18 @@ Module and inverter parameters are loaded from:
 - `docs/CEC Inverters.csv` (~2,000 inverters)
 
 Panel Model and Inverter Model values in the input CSV must exactly match names in these files.
+
+## Docker
+
+```bash
+cp .env.example .env   # Fill in NSRDB_API_KEY, NSRDB_API_EMAIL, and optionally API_KEY
+docker-compose up       # Starts API + TimescaleDB
+```
+
+- API available at [http://localhost:8000](http://localhost:8000)
+- TimescaleDB (PostgreSQL 16) available at `localhost:5432`
+- Volume mounts: `./uploads:/app/uploads`, `./outputs:/app/outputs` (persist across restarts)
+- The entrypoint script waits for PostgreSQL readiness and runs Alembic migrations before starting uvicorn
 
 ## Usage
 
@@ -279,6 +303,42 @@ python -m src.main input.csv --skip-climate
 python -m src.main input.csv --log-level DEBUG
 ```
 
+### REST API
+
+Start the server:
+
+```bash
+uvicorn src.api.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+**Authentication:** Set the `API_KEY` env var to enable X-API-Key header authentication. When unset, auth is disabled. `GET /health` is always exempt.
+
+#### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/analyses/production` | Run production-only simulation |
+| POST | `/analyses/bill-savings` | Run production + bill savings analysis |
+| POST | `/analyses/bess` | Run BESS dispatch or sizing optimization |
+| POST | `/analyses/buildability` | Run buildable land assessment (set `include_maps: true` for PNG figures) |
+| GET | `/analyses/load-types` | List available DOE reference building types |
+| GET | `/analyses/{run_id}/results` | Retrieve saved results JSON |
+| GET | `/analyses/{run_id}/report` | Download PDF report |
+| GET | `/analyses/{run_id}/timeseries` | Download 8760 timeseries CSV |
+| GET | `/analyses/equipment/modules` | Search CEC module database |
+| GET | `/analyses/equipment/inverters` | Search CEC inverter database |
+| POST | `/rates/build` | Build and validate a rate schedule (set `save_to_disk: true` to persist) |
+| POST | `/uploads/{file_type}` | Upload a file: `rate` (JSON), `kmz`, or `load-profile` (CSV) |
+| GET | `/health` | Health check |
+
+#### Rate Schedule Sources
+
+Three mutually exclusive ways to provide a rate schedule for bill calculations:
+
+1. **Inline rate object** — Pass a full `RateSchedule` as `bill.rate` in the request body
+2. **Rate file path** — Set `bill.rate_file_path` to a JSON file on disk (from `/rates/build` with `save_to_disk` or `/uploads/rate`)
+3. **OpenEI lookup** — Set `bill.utility_name` + `bill.tariff_name` to fetch from the URDB
+
 ### Python API
 
 ```python
@@ -286,7 +346,13 @@ from pathlib import Path
 from src.pipeline import SolarModelingPipeline
 
 pipeline = SolarModelingPipeline(output_dir=Path("outputs"))
+
+# Via CSV (CLI path)
 results = pipeline.run(csv_path=Path("input.csv"))
+
+# Via SiteConfig objects (API path)
+results = pipeline.run_from_configs([site_config])
+
 # results: {total_sites, successful, failed, timeseries_files, summaries, report_files, error_files}
 ```
 
@@ -301,7 +367,22 @@ python scripts/test_climate_data.py --csv "sites.csv" --year 2023
 ```
 src/
 ├── main.py                          # CLI entry point
-├── pipeline.py                      # SolarModelingPipeline orchestrator
+├── pipeline.py                      # SolarModelingPipeline orchestrator (run + run_from_configs)
+├── api/
+│   ├── app.py                       # FastAPI application factory
+│   ├── auth.py                      # X-API-Key middleware
+│   ├── adapter.py                   # API request → SiteConfig mapping
+│   ├── runner.py                    # Pipeline execution + response extraction
+│   ├── routes/
+│   │   ├── analyses.py              # Production, bill-savings, BESS, buildability, load-types
+│   │   ├── results.py               # GET results/report/timeseries by run_id
+│   │   ├── equipment.py             # CEC module/inverter search
+│   │   ├── rates.py                 # POST /rates/build
+│   │   └── uploads.py               # POST /uploads/{file_type}
+│   └── schemas/
+│       ├── common.py                # Shared request/response models
+│       ├── requests.py              # Request body schemas
+│       └── responses.py             # Response body schemas
 ├── config/
 │   ├── loader.py                    # CSV → SiteConfig parsing, 70-column mapping
 │   └── schema.py                    # Pydantic SiteConfig model (70+ fields)
@@ -396,10 +477,11 @@ research/                            # Research scripts (not part of production 
 ├── m9_bias_correction/              # M9: NSRDB bias correction model training
 └── m11_subhourly/                   # M11: Subhourly model v2 (1-min ground stations)
 
-tests/                               # 1408 tests
+tests/                               # 1687 tests
 ├── conftest.py                      # Shared pytest fixtures
 ├── fixtures/                        # Sample CSV, rate JSONs, load profiles
 ├── test_*.py                        # Test modules mirroring src/ structure
+├── api/                             # API endpoint tests (M15/M16)
 ├── test_bess/                       # BESS dispatch, optimizer, metrics tests (M14a/M14b)
 ├── test_rates/                      # NEM billing, models, CLI tests (M14b)
 ├── test_config/                     # BESS charging mode validation tests (M14b)
@@ -427,7 +509,7 @@ pytest tests/ --cov=src --cov-report=html
 open htmlcov/index.html
 ```
 
-1408 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
+1687 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, REST API endpoints, and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
 
 ## Database
 
@@ -489,6 +571,8 @@ row = recreate_run_input("your-run-uuid-here")
 | M14b | BESS Enhancements | Done | NEM export credits (flat/match_import/detailed, monthly banking, annual true-up), ITC solar-only charging constraint, grid-only standalone BESS, LP export revenue optimization, dynamic PDF page counting |
 | M14c | BESS Sizing Optimization | Done | Brute force sweep over (power, duration) combos, NPV ranking, project economics |
 | M14e | FTM/Wholesale Dispatch | Done | LMP-based dispatch via gridstatus (PJM/ERCOT/CAISO), energy arbitrage LP, FTM sizing optimization, revenue-based NPV |
+| M15 | API Phase 1 | Done | FastAPI REST API overlay, 10 endpoints, equipment search, PDF/CSV/JSON retrieval |
+| M16 | API Phase 2 | Done | Pipeline refactor (run_from_configs), rate builder API, inline rates, file upload, auth, Docker |
 
 ### Roadmap
 

@@ -2,9 +2,12 @@
 
 from fastapi import FastAPI
 
+from src.api.auth import APIKeyMiddleware
 from src.api.routes.analyses import router as analyses_router
 from src.api.routes.equipment import router as equipment_router
+from src.api.routes.rates import router as rates_router
 from src.api.routes.results import router as results_router
+from src.api.routes.uploads import router as uploads_router
 
 
 def create_app() -> FastAPI:
@@ -15,6 +18,8 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(title="Solar Model API", version="1.0.0")
 
+    app.add_middleware(APIKeyMiddleware)
+
     @app.get("/health")
     def health() -> dict:
         """Health check endpoint."""
@@ -22,5 +27,7 @@ def create_app() -> FastAPI:
 
     app.include_router(analyses_router)
     app.include_router(equipment_router)
+    app.include_router(rates_router)
     app.include_router(results_router)
+    app.include_router(uploads_router)
     return app

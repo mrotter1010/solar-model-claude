@@ -49,20 +49,20 @@ logger = setup_logger(__name__)
 
 
 def run_climate_data_pipeline(
-    config_csv: Path, year: int | str = "tmy"
+    sites: list[SiteConfig], year: int | str = "tmy"
 ) -> tuple[
     list[SiteConfig],
     dict[tuple[float, float], list[float] | None],
     dict[str, dict],
 ]:
-    """Load sites from CSV, fetch climate data, and apply bias correction.
+    """Fetch climate data and apply bias correction for pre-loaded sites.
 
     Bias correction is applied once per unique location and saved to
     data/climate/cache/corrected/. All sites sharing the same lat/lon
     reuse the same corrected file, preventing triple-correction.
 
     Args:
-        config_csv: Path to CSV file with site configurations.
+        sites: List of validated SiteConfig objects.
         year: Weather data year to retrieve.
 
     Returns:
@@ -72,9 +72,6 @@ def run_climate_data_pipeline(
               or None if ERA5 data was unavailable.
             - Dict mapping site_name to bias correction metadata.
     """
-    # Load and validate site configurations
-    sites = load_config(config_csv)
-    logger.info(f"Loaded {len(sites)} sites from {config_csv}")
 
     # Build climate pipeline components from config
     config = ClimateConfig()
@@ -440,7 +437,7 @@ class SolarModelingPipeline:
     def run(
         self, csv_path: Path, skip_climate: bool = False
     ) -> dict[str, object]:
-        """Execute the full modeling pipeline.
+        """Execute the full modeling pipeline from a CSV file.
 
         Args:
             csv_path: Path to input CSV with site configurations.
@@ -451,18 +448,32 @@ class SolarModelingPipeline:
             Dict with keys: total_sites, successful, failed,
             timeseries_files, summaries, error_files, report_files.
         """
-        # Step 1: Load site configs
         logger.info(f"Loading site configurations from {csv_path}")
         site_configs = load_config(csv_path)
         logger.info(f"Loaded {len(site_configs)} sites")
+        return self.run_from_configs(site_configs, skip_climate=skip_climate)
 
-        # Step 2: Climate data retrieval + bias correction (per unique location)
+    def run_from_configs(
+        self, site_configs: list[SiteConfig], skip_climate: bool = False
+    ) -> dict[str, object]:
+        """Execute the full modeling pipeline from pre-loaded site configs.
+
+        Args:
+            site_configs: List of validated SiteConfig objects.
+            skip_climate: If True, skip climate data fetch (sites must already
+                have weather_file_path assigned).
+
+        Returns:
+            Dict with keys: total_sites, successful, failed,
+            timeseries_files, summaries, error_files, report_files.
+        """
+        # Step 1: Climate data retrieval + bias correction (per unique location)
         soiling_lookup: dict[tuple[float, float], list[float] | None] = {}
         bias_correction_lookup: dict[str, dict] = {}
         if not skip_climate:
             logger.info("Fetching climate data...")
             site_configs, soiling_lookup, bias_correction_lookup = (
-                run_climate_data_pipeline(csv_path)
+                run_climate_data_pipeline(site_configs)
             )
         else:
             logger.info("Skipping climate data fetch (skip_climate=True)")
@@ -545,7 +556,7 @@ class SolarModelingPipeline:
                 hourly_production_kwh = (
                     result.hourly_data["ac_gross"] * shading_factor
                 ).tolist()
-                bill_calc_result = run_bill_calculation(site, hourly_production_kwh)
+                bill_calc_result = run_bill_calculation(site, hourly_production_kwh, rate_schedule=site.rate_schedule)
                 bill_savings = (
                     bill_calc_result.bill_savings if bill_calc_result else None
                 )

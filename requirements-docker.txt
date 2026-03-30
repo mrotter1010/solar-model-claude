@@ -1,0 +1,50 @@
+# Solar Model API — Docker dependencies
+# Mirrors environment.yml but for pip-only installation in Docker.
+
+# Web framework
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
+python-multipart>=0.0.7
+
+# Data validation
+pydantic>=2.0,<3
+
+# Database
+sqlalchemy>=2.0,<3
+psycopg2-binary>=2.9,<3
+alembic>=1.13,<2
+
+# PySAM (NREL solar simulation)
+nrel-pysam>=5.0,<6
+
+# Data / science
+pandas>=2.0,<3
+numpy>=1.24,<3
+scikit-learn>=1.3,<2
+joblib>=1.3,<2
+matplotlib>=3.8,<4
+
+# GIS / buildability
+shapely>=2.0,<3
+geopandas>=0.14,<2
+rasterio>=1.3,<2
+pyproj>=3.6,<4
+
+# PDF reporting
+reportlab>=4.0,<5
+
+# Optimization (BESS sizing)
+pulp>=2.7,<3
+
+# HTTP clients
+requests>=2.31,<3
+
+# LMP / grid data
+gridstatus>=0.27
+
+# Logging
+colorlog>=6.7,<7
+
+# Cloud / legacy climate (ERA5)
+gcsfs>=2023.9
+zarr>=2.16,<3
