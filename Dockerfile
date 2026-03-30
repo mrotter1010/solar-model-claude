@@ -26,8 +26,8 @@ COPY alembic/ alembic/
 COPY src/ src/
 
 # Copy CEC database files (modules + inverters)
-COPY docs/CEC\ Modules.csv docs/CEC\ Modules.csv
-COPY docs/CEC\ Inverters.csv docs/CEC\ Inverters.csv
+COPY ["docs/CEC Modules.csv", "docs/CEC Modules.csv"]
+COPY ["docs/CEC Inverters.csv", "docs/CEC Inverters.csv"]
 
 # Copy data directory (load profiles, LMP cache, etc.)
 # Note: data/ is in .gitignore — build context must include it.
