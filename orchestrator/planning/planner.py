@@ -63,33 +63,14 @@ class Planner:
             *messages,
         ]
 
+        # Omit tools so GPT-5 is forced to respond with text (the plan).
+        # Tools are only provided during execution (generate_execution_calls).
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=full_messages,
-            tools=self._tools,
         )
 
         choice = response.choices[0]
-
-        # Handle unexpected tool calls — GPT-5 should return text per the
-        # system prompt, but if it returns tool calls instead, log a warning
-        # and return whatever text content exists.
-        if choice.message.tool_calls:
-            logger.warning(
-                "GPT-5 returned tool calls during plan generation "
-                "(expected text). tool_calls=%s",
-                [tc.function.name for tc in choice.message.tool_calls],
-            )
-            content = choice.message.content or (
-                "The model attempted to call tools directly. "
-                "Please rephrase your request."
-            )
-            return PlannerResponse(
-                response_type=ResponseType.RESPONSE,
-                content=content,
-                raw_response=response.model_dump(),
-            )
-
         content = choice.message.content or ""
         response_type = self._classify_response(content)
 

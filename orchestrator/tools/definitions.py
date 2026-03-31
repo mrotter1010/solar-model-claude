@@ -260,6 +260,10 @@ TOOL_DEFINITIONS: list[dict] = [
                                             "12x24 weekday export schedule. "
                                             "Required for detailed mode."
                                         ),
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "integer"},
+                                        },
                                     },
                                     "export_weekend_schedule": {
                                         "type": "array",
@@ -267,6 +271,10 @@ TOOL_DEFINITIONS: list[dict] = [
                                             "12x24 weekend export schedule. "
                                             "Required for detailed mode."
                                         ),
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "integer"},
+                                        },
                                     },
                                     "export_rate_structure": {
                                         "type": "array",
@@ -274,6 +282,10 @@ TOOL_DEFINITIONS: list[dict] = [
                                             "Export rate tiers per period. "
                                             "Required for detailed mode."
                                         ),
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "object"},
+                                        },
                                     },
                                     "true_up_rate": {
                                         "type": "number",

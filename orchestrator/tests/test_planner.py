@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from orchestrator.config import OrchestratorConfig
 from orchestrator.planning.models import PlannerResponse, ResponseType
 from orchestrator.planning.planner import Planner
-from orchestrator.tools.definitions import TOOL_DEFINITIONS
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +166,8 @@ class TestGeneratePlan:
         assert sent_messages[0]["content"] == "You are a solar analyst assistant."
 
     @pytest.mark.anyio
-    async def test_generate_plan_includes_tools(self, planner, mock_openai_client, sample_messages):
-        """TOOL_DEFINITIONS are passed to the OpenAI call."""
+    async def test_generate_plan_omits_tools(self, planner, mock_openai_client, sample_messages):
+        """Tools are NOT passed during plan generation (text-only mode)."""
         mock_openai_client.chat.completions.create = AsyncMock(
             return_value=_make_chat_response(content="Hello"),
         )
@@ -176,23 +175,19 @@ class TestGeneratePlan:
         await planner.generate_plan(sample_messages)
 
         call_kwargs = mock_openai_client.chat.completions.create.call_args
-        assert call_kwargs.kwargs["tools"] == TOOL_DEFINITIONS
+        assert "tools" not in call_kwargs.kwargs
 
     @pytest.mark.anyio
-    async def test_generate_plan_handles_unexpected_tool_calls(self, planner, mock_openai_client, sample_messages):
-        """If GPT-5 returns tool_calls instead of text, handle gracefully."""
-        tool_call = MagicMock()
-        tool_call.function.name = "search_modules"
+    async def test_generate_plan_does_not_pass_tools(self, planner, mock_openai_client, sample_messages):
+        """Plan generation omits tools so GPT-5 is forced to return text."""
         mock_openai_client.chat.completions.create = AsyncMock(
-            return_value=_make_chat_response(content=None, tool_calls=[tool_call]),
+            return_value=_make_chat_response(content="ANALYSIS PLAN\n1. Search\n"),
         )
 
-        result = await planner.generate_plan(sample_messages)
+        await planner.generate_plan(sample_messages)
 
-        # Should not crash; returns RESPONSE type with fallback content
-        assert result.response_type == ResponseType.RESPONSE
-        assert len(result.content) > 0
-        assert result.raw_response is not None
+        call_kwargs = mock_openai_client.chat.completions.create.call_args
+        assert "tools" not in call_kwargs.kwargs
 
 
 # ---------------------------------------------------------------------------

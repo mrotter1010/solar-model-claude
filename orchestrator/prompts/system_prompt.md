@@ -829,9 +829,9 @@ Build and validate a rate schedule.
             "properties": {
               "mode": { "type": "string", "enum": ["none", "flat_rate", "match_import", "detailed"], "description": "Export credit mode (default: 'none')" },
               "export_rate": { "type": "number", "description": "Fixed $/kWh export credit. Required for flat_rate mode." },
-              "export_schedule": { "type": "array", "description": "12×24 weekday export schedule. Required for detailed mode." },
-              "export_weekend_schedule": { "type": "array", "description": "12×24 weekend export schedule. Required for detailed mode." },
-              "export_rate_structure": { "type": "array", "description": "Export rate tiers per period. Required for detailed mode." },
+              "export_schedule": { "type": "array", "items": { "type": "array", "items": { "type": "integer" } }, "description": "12×24 weekday export schedule. Required for detailed mode." },
+              "export_weekend_schedule": { "type": "array", "items": { "type": "array", "items": { "type": "integer" } }, "description": "12×24 weekend export schedule. Required for detailed mode." },
+              "export_rate_structure": { "type": "array", "items": { "type": "array", "items": { "type": "object" } }, "description": "Export rate tiers per period. Required for detailed mode." },
               "true_up_rate": { "type": "number", "description": "Year-end cashout $/kWh (default: 0.0)" }
             }
           }

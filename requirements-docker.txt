@@ -15,7 +15,7 @@ psycopg2-binary>=2.9,<3
 alembic>=1.13,<2
 
 # PySAM (NREL solar simulation)
-nrel-pysam>=5.0,<6
+nrel-pysam>=7.1,<8
 
 # Data / science
 pandas>=2.0,<3
