@@ -38,8 +38,10 @@ env/
 data/
 /outputs/
 !src/outputs/
+uploads/
 .env
 *.log
+solar_orchestrator_system_prompt.md
 
 # Research data (large cached/generated files)
 research/**/cache/
