@@ -1,0 +1,64 @@
+import { useEffect, useRef } from 'react';
+import { Sun } from 'lucide-react';
+import MessageBubble from './MessageBubble';
+import PlanCard from './PlanCard';
+import ResultsCard from './ResultsCard';
+import LoadingState from './LoadingState';
+import { CONFIG } from '../config.js';
+
+export default function ChatPanel({ messages, isLoading, pendingPlan, onApprove }) {
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading]);
+
+  // Find the index of the last plan message to decide where to show the button
+  let lastPlanIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].responseType === 'plan') {
+      lastPlanIndex = i;
+      break;
+    }
+  }
+
+  if (messages.length === 0 && !isLoading) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+        <Sun className="h-12 w-12 mb-3" />
+        <p className="text-sm">Describe your solar analysis to get started</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {messages.map((msg, idx) => {
+        if (msg.responseType === 'plan') {
+          const isLastPlan = idx === lastPlanIndex && pendingPlan;
+          return (
+            <PlanCard
+              key={msg.id}
+              content={msg.content}
+              onApprove={isLastPlan ? onApprove : null}
+              isLoading={isLoading}
+            />
+          );
+        }
+        if (msg.steps != null) {
+          return (
+            <ResultsCard
+              key={msg.id}
+              content={msg.content}
+              steps={msg.steps}
+              analysisApiUrl={CONFIG.analysisApiUrl}
+            />
+          );
+        }
+        return <MessageBubble key={msg.id} message={msg} />;
+      })}
+      {isLoading && <LoadingState />}
+      <div ref={bottomRef} />
+    </div>
+  );
+}

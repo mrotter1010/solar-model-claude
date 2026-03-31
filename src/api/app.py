@@ -1,6 +1,7 @@
 """FastAPI application factory for the Solar Model API."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.auth import APIKeyMiddleware
 from src.api.routes.analyses import router as analyses_router
@@ -19,6 +20,13 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Solar Model API", version="1.0.0")
 
     app.add_middleware(APIKeyMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Tighten in production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     def health() -> dict:
