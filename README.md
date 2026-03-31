@@ -1,11 +1,17 @@
 # Solar Production Model
 
-Python-based solar production modeling tool using NREL's PySAM detailed photovoltaic model for utility-scale solar projects. Accepts a multi-row CSV of site configurations, fetches weather data, runs physics-based simulations, applies trained ML corrections, and produces per-site 8760 hourly timeseries CSVs, PDF reports, and database records. Includes optional bill savings analysis (TOU rate schedules), battery dispatch optimization (PuLP LP solver), front-of-meter wholesale dispatch (LMP-based revenue optimization via gridstatus), and buildable land assessment (NLCD/3DEP).
+Python-based solar production modeling tool using NREL's PySAM detailed photovoltaic model for utility-scale solar projects. Accepts a multi-row CSV of site configurations, fetches weather data, runs physics-based simulations, applies trained ML corrections, and produces per-site 8760 hourly timeseries CSVs, PDF reports, and database records. Includes optional bill savings analysis (TOU rate schedules), battery dispatch optimization (PuLP LP solver), front-of-meter wholesale dispatch (LMP-based revenue optimization via gridstatus), and buildable land assessment (NLCD/3DEP). A GPT-5 powered LLM orchestrator with a React chat frontend provides a natural language interface for running analyses and reviewing results.
 
 ## Pipeline Overview
 
 ```
-CSV Input                              JSON API Request
+React Frontend (:5173)                 LLM Orchestrator (:8001)
+  → Chat UI, plan approval               → GPT-5 plan-then-execute
+  → File upload (drag-and-drop)           → Calls analysis API endpoints
+  │                                       │
+  └──────────┬────────────────────────────┘
+             ▼
+CSV Input                              JSON API Request (:8000)
   → Config validation (Pydantic)         → FastAPI (auth, validation)
   → pipeline.run()                       → adapter → SiteConfig
   │                                      │
@@ -258,6 +264,12 @@ export PJM_API_KEY="your-pjm-api-key"
 
 Get a key at [https://dataminer2.pjm.com/](https://dataminer2.pjm.com/). A default key is included but has lower rate limits (6 req/min). ERCOT and CAISO do not require API keys.
 
+### OpenAI API Key (LLM Orchestrator)
+
+```bash
+export OPENAI_API_KEY="your-openai-api-key"  # Required for LLM orchestrator
+```
+
 ### API Environment Variables
 
 ```bash
@@ -276,12 +288,14 @@ Panel Model and Inverter Model values in the input CSV must exactly match names 
 ## Docker
 
 ```bash
-cp .env.example .env   # Fill in NSRDB_API_KEY, NSRDB_API_EMAIL, and optionally API_KEY
-docker-compose up       # Starts API + TimescaleDB
+cp .env.example .env   # Fill in NSRDB_API_KEY, NSRDB_API_EMAIL, OPENAI_API_KEY, and optionally API_KEY
+docker-compose up       # Starts API + TimescaleDB + orchestrator
 ```
 
 - API available at [http://localhost:8000](http://localhost:8000)
+- LLM orchestrator available at [http://localhost:8001](http://localhost:8001)
 - TimescaleDB (PostgreSQL 16) available at `localhost:5432`
+- Frontend runs separately: `cd frontend && npm run dev` → [http://localhost:5173](http://localhost:5173)
 - Volume mounts: `./uploads:/app/uploads`, `./outputs:/app/outputs` (persist across restarts)
 - The entrypoint script waits for PostgreSQL readiness and runs Alembic migrations before starting uvicorn
 
@@ -330,6 +344,41 @@ uvicorn src.api.app:create_app --factory --host 0.0.0.0 --port 8000
 | POST | `/rates/build` | Build and validate a rate schedule (set `save_to_disk: true` to persist) |
 | POST | `/uploads/{file_type}` | Upload a file: `rate` (JSON), `kmz`, or `load-profile` (CSV) |
 | GET | `/health` | Health check |
+
+### LLM Orchestrator (M17)
+
+GPT-5 powered natural language interface for the analysis API. Plan-then-execute workflow: user describes analysis → GPT-5 proposes a plan → user approves → orchestrator executes API calls → GPT-5 synthesizes results.
+
+Start the orchestrator:
+
+```bash
+uvicorn orchestrator.app:app --host 0.0.0.0 --port 8001
+```
+
+Requires `OPENAI_API_KEY` env var.
+
+#### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/chat` | Send a message (returns plan, response, clarification, or error) |
+| POST | `/chat/approve` | Approve and execute a pending plan |
+| GET | `/sessions/{session_id}` | Get session info |
+| GET | `/health` | Health check |
+
+### React Frontend (M18)
+
+Vite + React + Tailwind chat interface at [http://localhost:5173](http://localhost:5173).
+
+- Chat with the orchestrator via natural language
+- Review and approve execution plans
+- View results with markdown-formatted synthesis
+- Download PDF reports and 8760 CSV timeseries
+- Upload files (rate schedules, KMZ boundaries, load profiles) with drag-and-drop
+
+```bash
+cd frontend && npm run dev
+```
 
 #### Rate Schedule Sources
 
@@ -472,12 +521,46 @@ docs/
 ├── CEC Inverters.csv                # NREL CEC inverter parameter database
 └── CLIMATE_DATA.md                  # Climate data pipeline documentation
 
+orchestrator/
+├── app.py                           # FastAPI orchestrator application
+├── prompts/
+│   └── system_prompt.md             # GPT-5 system prompt
+├── planning/
+│   ├── planner.py                   # Plan generation via GPT-5
+│   ├── executor.py                  # Plan execution against analysis API
+│   └── tools.py                     # Tool definitions for GPT-5
+├── conversation/
+│   └── manager.py                   # Session and conversation management
+└── tests/                           # 67 orchestrator tests
+
+frontend/
+├── src/
+│   ├── App.jsx                      # Main layout (sidebar + chat)
+│   ├── config.js                    # API URL configuration
+│   ├── api/
+│   │   ├── orchestrator.js          # Chat/approve/session API client
+│   │   └── uploads.js               # File upload API client
+│   ├── components/
+│   │   ├── ChatPanel.jsx            # Scrollable message list
+│   │   ├── MessageBubble.jsx        # User/assistant message rendering
+│   │   ├── MessageInput.jsx         # Text input with send
+│   │   ├── PlanCard.jsx             # Plan display with approve button
+│   │   ├── ResultsCard.jsx          # Results with download links
+│   │   ├── StepsList.jsx            # Collapsible execution details
+│   │   ├── FileUpload.jsx           # Drag-and-drop file upload
+│   │   ├── LoadingState.jsx         # Execution spinner
+│   │   └── ErrorBanner.jsx          # Dismissible error display
+│   └── hooks/
+│       ├── useChat.js               # Chat state management
+│       └── useFileUpload.js         # Upload state management
+└── package.json
+
 research/                            # Research scripts (not part of production pipeline)
 ├── m8_subhourly/                    # M8: Original subhourly model (v1, 5-min NSRDB)
 ├── m9_bias_correction/              # M9: NSRDB bias correction model training
 └── m11_subhourly/                   # M11: Subhourly model v2 (1-min ground stations)
 
-tests/                               # 1687 tests
+tests/                               # 1754 tests (1687 backend + 67 orchestrator)
 ├── conftest.py                      # Shared pytest fixtures
 ├── fixtures/                        # Sample CSV, rate JSONs, load profiles
 ├── test_*.py                        # Test modules mirroring src/ structure
@@ -509,7 +592,7 @@ pytest tests/ --cov=src --cov-report=html
 open htmlcov/index.html
 ```
 
-1687 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, REST API endpoints, and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
+1,754 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, REST API endpoints, LLM orchestrator (plan/execute/session management), and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
 
 ## Database
 
@@ -573,6 +656,8 @@ row = recreate_run_input("your-run-uuid-here")
 | M14e | FTM/Wholesale Dispatch | Done | LMP-based dispatch via gridstatus (PJM/ERCOT/CAISO), energy arbitrage LP, FTM sizing optimization, revenue-based NPV |
 | M15 | API Phase 1 | Done | FastAPI REST API overlay, 10 endpoints, equipment search, PDF/CSV/JSON retrieval |
 | M16 | API Phase 2 | Done | Pipeline refactor (run_from_configs), rate builder API, inline rates, file upload, auth, Docker |
+| M17 | LLM Orchestrator | Done | GPT-5 natural language interface, plan-then-execute workflow, 4 endpoints, 67 tests |
+| M18 | React Frontend | Done | Vite + React + Tailwind chat UI, plan approval, results display, file upload, CORS |
 
 ### Roadmap
 
@@ -581,3 +666,4 @@ row = recreate_run_input("your-run-uuid-here")
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
 | M14d | Detailed Degradation | Rainflow counting, calendar aging, C-rate effects |
+| M19 | Backend Bug Fixes | Bug fixes from M18 live validation: GPT-5 synthesis accuracy, equipment search caching, timeseries export cleanup, buildability API wiring |
