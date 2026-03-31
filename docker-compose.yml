@@ -16,6 +16,23 @@ services:
       timescaledb:
         condition: service_healthy
 
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5}
+      - ANALYSIS_API_URL=http://api:8000
+      - ANALYSIS_API_KEY=${API_KEY:-}
+      - REQUEST_TIMEOUT=120
+      - SESSION_TTL_MINUTES=60
+      - MAX_PLAN_STEPS=10
+    depends_on:
+      - api
+
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     ports:
