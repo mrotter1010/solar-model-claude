@@ -149,6 +149,54 @@ class TestShadingHaircut:
         # Assert — original unchanged
         assert hourly_data["ac_net"].iloc[0] == pytest.approx(original_ac_net)
 
+    def test_negative_ac_gross_clamped_to_zero(self, tmp_path: Path) -> None:
+        """Negative ac_gross values (inverter standby) are clamped to zero."""
+        # Arrange — simulate PySAM nighttime standby power (-10.88 kW)
+        writer = OutputWriter(tmp_path)
+        hourly_data = pd.DataFrame({
+            "ac_gross": [5000.0, -10.88, 0.0, -5.0, 3000.0],
+            "poa_nominal": [200.0, 0.0, 0.0, 0.0, 150.0],
+        })
+
+        # Act — zero shading: simplest case
+        result = writer._apply_shading_haircut(hourly_data, 0.0)
+
+        # Assert — all ac_gross values are non-negative
+        assert (result["ac_gross"] >= 0).all(), (
+            f"Negative ac_gross found: {result['ac_gross'].tolist()}"
+        )
+        # Assert — all ac_net values are non-negative
+        assert (result["ac_net"] >= 0).all(), (
+            f"Negative ac_net found: {result['ac_net'].tolist()}"
+        )
+        # Positive values should be unchanged
+        assert result["ac_gross"].iloc[0] == pytest.approx(5000.0)
+        assert result["ac_gross"].iloc[4] == pytest.approx(3000.0)
+
+    def test_negative_ac_gross_clamped_with_shading(self, tmp_path: Path) -> None:
+        """Negative ac_gross clamped to zero even with shading applied."""
+        # Arrange
+        writer = OutputWriter(tmp_path)
+        hourly_data = pd.DataFrame({
+            "ac_gross": [1000.0, -10.88, -0.01, 500.0],
+            "poa_nominal": [200.0, 0.0, 0.0, 100.0],
+        })
+
+        # Act — 5% shading
+        result = writer._apply_shading_haircut(hourly_data, 5.0)
+
+        # Assert — ac_net non-negative even when derived from negative ac_gross
+        assert (result["ac_net"] >= 0).all(), (
+            f"Negative ac_net found: {result['ac_net'].tolist()}"
+        )
+        assert (result["ac_gross"] >= 0).all(), (
+            f"Negative ac_gross found: {result['ac_gross'].tolist()}"
+        )
+        # Positive ac_net should reflect shading: 1000 * 0.95 = 950
+        assert result["ac_net"].iloc[0] == pytest.approx(950.0)
+        # Negative ac_gross clamped → ac_net also clamped to 0
+        assert result["ac_net"].iloc[1] == pytest.approx(0.0)
+
 
 # ---------------------------------------------------------------------------
 # Metrics calculation tests
@@ -286,6 +334,45 @@ class TestErrorJSON:
         assert data["latitude"] == 33.45
         assert data["dc_size_mw"] == 10.0
         assert "report_timestamp" in data
+
+
+class TestFilenameSanitization:
+    """Tests for filename sanitization of special characters."""
+
+    def test_site_name_with_slash_produces_valid_path(self, tmp_path: Path) -> None:
+        """Site name containing '/' should not create nested directories."""
+        # Arrange — site name with "/" as seen in "5/4 MW" DC/AC descriptions
+        writer = OutputWriter(tmp_path)
+        site = _make_site_config(site_name="Phoenix SAT 5/4 MW")
+        result = _make_successful_result(site_name="Phoenix SAT 5/4 MW")
+        shading_pct = 0.0
+
+        # Act
+        ts_path, summary = writer.write_outputs(result, site, shading_pct)
+
+        # Assert — timeseries file was written successfully
+        assert ts_path is not None
+        assert ts_path.exists()
+        # The filename itself should contain no "/" characters
+        assert "/" not in ts_path.name
+        # The file should be directly inside the timeseries directory
+        assert ts_path.parent == tmp_path / "timeseries"
+
+    def test_site_name_with_backslash_sanitized(self, tmp_path: Path) -> None:
+        """Site name containing backslash should be sanitized."""
+        # Arrange
+        writer = OutputWriter(tmp_path)
+        site = _make_site_config(site_name="Site\\Test")
+        result = _make_successful_result(site_name="Site\\Test")
+        shading_pct = 0.0
+
+        # Act
+        ts_path, summary = writer.write_outputs(result, site, shading_pct)
+
+        # Assert
+        assert ts_path is not None
+        assert ts_path.exists()
+        assert "\\" not in ts_path.name
 
 
 # ---------------------------------------------------------------------------

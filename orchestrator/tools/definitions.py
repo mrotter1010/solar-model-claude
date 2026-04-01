@@ -32,9 +32,11 @@ TOOL_DEFINITIONS: list[dict] = [
                     "search": {
                         "type": "string",
                         "description": (
-                            "Case-insensitive search string. Examples: "
-                            "'Canadian Solar 400', 'LONGi bifacial', "
-                            "'First Solar Series 6'"
+                            "Case-insensitive search string. Use CEC "
+                            "manufacturer prefixes. Examples: "
+                            "'CSI Solar 550', 'Trina Solar 550', "
+                            "'LONGi Green Energy', 'Jinko Solar', "
+                            "'First Solar'"
                         ),
                     },
                 },
@@ -57,8 +59,10 @@ TOOL_DEFINITIONS: list[dict] = [
                     "search": {
                         "type": "string",
                         "description": (
-                            "Case-insensitive search string. Examples: "
-                            "'SMA Sunny', 'Power Electronics', 'Sungrow SG'"
+                            "Case-insensitive search string. Use CEC "
+                            "manufacturer prefixes. Examples: "
+                            "'SMA America', 'Sungrow Power Supply', "
+                            "'Power Electronics', 'SolarEdge Technologies'"
                         ),
                     },
                 },

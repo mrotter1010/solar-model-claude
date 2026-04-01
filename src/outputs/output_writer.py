@@ -1,6 +1,7 @@
 """Output generation for simulation results: timeseries CSVs and error JSONs."""
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -109,8 +110,9 @@ class OutputWriter:
             Tuple of (timeseries_path, summary_dict) for success,
             or (None, error_path) for failure.
         """
-        filename_base = (
-            f"{site_config.run_name}_{site_config.site_name}".replace(" ", "_")
+        filename_base = re.sub(
+            r'[^\w\-.]', '_',
+            f"{site_config.run_name}_{site_config.site_name}",
         )
 
         if not simulation_result.success:
@@ -154,6 +156,8 @@ class OutputWriter:
         """
         df = hourly_data.copy()
         df["ac_net"] = df["ac_gross"] * (1 - shading_pct / 100)
+        df["ac_gross"] = df["ac_gross"].clip(lower=0)
+        df["ac_net"] = df["ac_net"].clip(lower=0)
         return df
 
     def _calculate_metrics(
