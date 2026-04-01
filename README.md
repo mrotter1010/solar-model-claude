@@ -560,7 +560,7 @@ research/                            # Research scripts (not part of production 
 ├── m9_bias_correction/              # M9: NSRDB bias correction model training
 └── m11_subhourly/                   # M11: Subhourly model v2 (1-min ground stations)
 
-tests/                               # 1754 tests (1687 backend + 67 orchestrator)
+tests/                               # 1756 tests (1689 backend + 67 orchestrator)
 ├── conftest.py                      # Shared pytest fixtures
 ├── fixtures/                        # Sample CSV, rate JSONs, load profiles
 ├── test_*.py                        # Test modules mirroring src/ structure
@@ -592,7 +592,7 @@ pytest tests/ --cov=src --cov-report=html
 open htmlcov/index.html
 ```
 
-1,754 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, REST API endpoints, LLM orchestrator (plan/execute/session management), and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
+1,756 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, REST API endpoints, LLM orchestrator (plan/execute/session management), and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
 
 ## Database
 
@@ -658,6 +658,7 @@ row = recreate_run_input("your-run-uuid-here")
 | M16 | API Phase 2 | Done | Pipeline refactor (run_from_configs), rate builder API, inline rates, file upload, auth, Docker |
 | M17 | LLM Orchestrator | Done | GPT-5 natural language interface, plan-then-execute workflow, 4 endpoints, 67 tests |
 | M18 | React Frontend | Done | Vite + React + Tailwind chat UI, plan approval, results display, file upload, CORS |
+| M19 | Backend Bug Fixes | Done | GPT-5 exact number quoting, equipment search caching, timeseries negative value clamp, CEC manufacturer name correction, filename sanitization |
 
 ### Roadmap
 
@@ -666,4 +667,3 @@ row = recreate_run_input("your-run-uuid-here")
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
 | M14d | Detailed Degradation | Rainflow counting, calendar aging, C-rate effects |
-| M19 | Backend Bug Fixes | Bug fixes from M18 live validation: GPT-5 synthesis accuracy, equipment search caching, timeseries export cleanup, buildability API wiring |
