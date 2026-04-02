@@ -6,7 +6,7 @@ Python-based solar production modeling tool using NREL's PySAM detailed photovol
 
 ```
 React Frontend (:5173)                 LLM Orchestrator (:8001)
-  → Chat UI, plan approval               → GPT-5 plan-then-execute
+  → Chat UI, plan approval, SSE streaming → GPT-5 plan-then-execute
   → File upload (drag-and-drop)           → Calls analysis API endpoints
   │                                       │
   └──────────┬────────────────────────────┘
@@ -51,6 +51,8 @@ CSV Input                              JSON API Request (:8000)
 9. **BESS dispatch optimization** — LP-based battery dispatch using PuLP/CBC solver. Runs 12 monthly optimizations with SOC carryover. Three strategies: `global` (minimize total bill), `peak_shaving` (reduce demand charges), `tou_arbitrage` (shift energy between TOU periods). NEM-aware LP includes export revenue in the objective and grid import/export decomposition. ITC solar-only charging constrains charge power to excess solar per hour. Grid-only standalone mode zeroes production for pure grid arbitrage. NEM credit banking accumulates monthly credits with annual true-up at a reduced rate. Computes bill comparison (solar-only vs solar+BESS), battery metrics (cycles, utilization, degradation), export tracking, and 12×24 heatmap data.
 
 10. **FTM wholesale dispatch** — For front-of-meter sites (`dispatch_mode=ftm`), fetches historical hourly LMP data from ISO markets (PJM, ERCOT, CAISO) via gridstatus. Auto-detects pricing zone from lat/lon or accepts explicit zone override. LP-based dispatch maximizes revenue: solar export at LMP + battery arbitrage (charge low, discharge high) minus degradation penalty. Supports ITC solar-only charging constraint. Optional parasitic load. Sizing optimization sweeps (power, duration) combinations ranked by BESS NPV. Ancillary services revenue as flat $/kW/yr assumption.
+
+Standalone LMP price queries are also available via `GET /lmp/prices` without requiring a full PV system configuration.
 
 11. **Buildable land assessment** — NLCD land cover classification, 3DEP slope analysis, setback buffers. Supports KMZ polygon boundaries or circular analysis radius. Produces buildable acreage estimates by land cover type.
 
@@ -341,6 +343,7 @@ uvicorn src.api.app:create_app --factory --host 0.0.0.0 --port 8000
 | GET | `/analyses/{run_id}/timeseries` | Download 8760 timeseries CSV |
 | GET | `/analyses/equipment/modules` | Search CEC module database |
 | GET | `/analyses/equipment/inverters` | Search CEC inverter database |
+| GET | `/lmp/prices` | Standalone LMP price query (PJM/ERCOT/CAISO, zone auto-detect from lat/lon) |
 | POST | `/rates/build` | Build and validate a rate schedule (set `save_to_disk: true` to persist) |
 | POST | `/uploads/{file_type}` | Upload a file: `rate` (JSON), `kmz`, or `load-profile` (CSV) |
 | GET | `/health` | Health check |
@@ -363,6 +366,7 @@ Requires `OPENAI_API_KEY` env var.
 |--------|------|-------------|
 | POST | `/chat` | Send a message (returns plan, response, clarification, or error) |
 | POST | `/chat/approve` | Approve and execute a pending plan |
+| POST | `/chat/approve/stream` | Approve and execute with SSE progress streaming |
 | GET | `/sessions/{session_id}` | Get session info |
 | GET | `/health` | Health check |
 
@@ -560,7 +564,7 @@ research/                            # Research scripts (not part of production 
 ├── m9_bias_correction/              # M9: NSRDB bias correction model training
 └── m11_subhourly/                   # M11: Subhourly model v2 (1-min ground stations)
 
-tests/                               # 1756 tests (1689 backend + 67 orchestrator)
+tests/                               # 1876 tests (1809 backend + 67 orchestrator)
 ├── conftest.py                      # Shared pytest fixtures
 ├── fixtures/                        # Sample CSV, rate JSONs, load profiles
 ├── test_*.py                        # Test modules mirroring src/ structure
@@ -592,7 +596,7 @@ pytest tests/ --cov=src --cov-report=html
 open htmlcov/index.html
 ```
 
-1,756 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, REST API endpoints, LLM orchestrator (plan/execute/session management), and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
+1,876 tests covering config validation, climate clients, PySAM configuration, simulation execution, output formatting, bias correction, subhourly correction, reporting, database operations, rate engine, BESS dispatch, NEM billing, FTM dispatch, LMP clients, buildability analysis, REST API endpoints, equipment search filters, LLM orchestrator (plan/execute/session management), and end-to-end integration tests. Tests write intermediate outputs to `outputs/test_results/` for manual inspection.
 
 ## Database
 
@@ -659,6 +663,7 @@ row = recreate_run_input("your-run-uuid-here")
 | M17 | LLM Orchestrator | Done | GPT-5 natural language interface, plan-then-execute workflow, 4 endpoints, 67 tests |
 | M18 | React Frontend | Done | Vite + React + Tailwind chat UI, plan approval, results display, file upload, CORS |
 | M19 | Backend Bug Fixes | Done | GPT-5 exact number quoting, equipment search caching, timeseries negative value clamp, CEC manufacturer name correction, filename sanitization |
+| M20 | Backlog Cleanup | Done | DB schema migration (35+5 missing columns, 2 type fixes), standalone GET /lmp/prices endpoint (PJM/ERCOT/CAISO with zone auto-detect), SSE streaming (executor async generator, POST /chat/approve/stream, frontend ExecutionProgress), equipment search upgrade (tokenized AND-matching, numeric STC/Paco filters), orchestrator planning/execution mode separation |
 
 ### Roadmap
 
@@ -667,3 +672,5 @@ row = recreate_run_input("your-run-uuid-here")
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
 | M14d | Detailed Degradation | Rainflow counting, calendar aging, C-rate effects |
+| — | BESS Orchestrator Fixes | Rate builder demand charge passthrough, BESS dispatch parameter validation through orchestrator flow |
+| — | Frontend New Chat | New Chat button for starting fresh sessions without opening a new browser tab |
