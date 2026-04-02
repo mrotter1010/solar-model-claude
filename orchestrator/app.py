@@ -1,15 +1,25 @@
 """FastAPI application for the solar orchestrator service."""
 
+import json
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.responses import StreamingResponse
 
 from orchestrator.config import OrchestratorConfig
 from orchestrator.conversation.manager import ConversationManager
 from orchestrator.conversation.models import ChatMessage, SessionStatus
+from orchestrator.planning.events import (
+    DoneEvent,
+    ErrorEvent,
+    StepCompleteEvent,
+    StepStartEvent,
+    SynthesisEvent,
+)
 from orchestrator.planning.executor import Executor
 from orchestrator.planning.models import ResponseType
 from orchestrator.planning.planner import Planner
@@ -202,6 +212,88 @@ async def approve(body: ApproveRequest, request: Request) -> ApproveResponse:
             steps=[],
             status=status,
         )
+
+
+# ---------------------------------------------------------------------------
+# SSE event serialization
+# ---------------------------------------------------------------------------
+
+_EVENT_TYPE_NAMES: dict[type, str] = {
+    StepStartEvent: "step_start",
+    StepCompleteEvent: "step_complete",
+    SynthesisEvent: "synthesis",
+    ErrorEvent: "error",
+    DoneEvent: "done",
+}
+
+
+def _serialize_event(event: object) -> tuple[str, str]:
+    """Convert an ExecutionEvent to (event_name, json_data) for SSE.
+
+    Args:
+        event: An ExecutionEvent dataclass instance.
+
+    Returns:
+        Tuple of (SSE event name, JSON-serialized payload). The internal
+        ``step_data`` wrapper is removed but its ``result`` field is
+        promoted to the top level so the frontend can extract run_id
+        and other fields for download links.
+    """
+    event_name = _EVENT_TYPE_NAMES[type(event)]
+    payload = asdict(event)
+    step_data = payload.pop("step_data", None)
+    if step_data is not None:
+        payload["result"] = step_data.get("result")
+    return event_name, json.dumps(payload)
+
+
+@app.post("/chat/approve/stream")
+async def approve_stream(
+    body: ApproveRequest, request: Request
+) -> StreamingResponse:
+    """Approve and execute a pending plan, streaming progress via SSE.
+
+    Returns a text/event-stream response with events:
+    step_start, step_complete, synthesis, error, done.
+    """
+    cm: ConversationManager = request.app.state.conversation_manager
+    executor: Executor = request.app.state.executor
+
+    session = cm.get_session(body.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != SessionStatus.PLAN_PENDING:
+        raise HTTPException(
+            status_code=400, detail="No pending plan to approve"
+        )
+
+    async def _event_generator():
+        synthesis_text = None
+
+        async for event in executor._execute_plan_generator(body.session_id):
+            if isinstance(event, SynthesisEvent):
+                synthesis_text = event.text
+
+            event_name, data = _serialize_event(event)
+            yield f"event: {event_name}\ndata: {data}\n\n"
+
+        # Mirror /chat/approve: add synthesis to conversation history
+        if synthesis_text:
+            cm.add_message(
+                body.session_id,
+                ChatMessage(role="assistant", content=synthesis_text),
+            )
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/sessions/{session_id}", response_model=SessionResponse)

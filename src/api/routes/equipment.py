@@ -16,14 +16,26 @@ def _get_cec_db() -> CECDatabase:
 
 
 @router.get("/modules")
-def list_modules(search: str | None = None) -> dict:
-    """List valid CEC module names, optionally filtered by search term."""
-    results = _get_cec_db().list_modules(search_term=search)
+def list_modules(
+    search: str | None = None,
+    min_stc: float | None = None,
+    max_stc: float | None = None,
+) -> dict:
+    """List valid CEC module names, optionally filtered by search and STC range."""
+    results = _get_cec_db().list_modules(
+        search_term=search, min_stc=min_stc, max_stc=max_stc
+    )
     return {"count": len(results), "modules": results}
 
 
 @router.get("/inverters")
-def list_inverters(search: str | None = None) -> dict:
-    """List valid CEC inverter names, optionally filtered by search term."""
-    results = _get_cec_db().list_inverters(search_term=search)
+def list_inverters(
+    search: str | None = None,
+    min_paco: float | None = None,
+    max_paco: float | None = None,
+) -> dict:
+    """List valid CEC inverter names, optionally filtered by search and Paco range."""
+    results = _get_cec_db().list_inverters(
+        search_term=search, min_paco=min_paco, max_paco=max_paco
+    )
     return {"count": len(results), "inverters": results}

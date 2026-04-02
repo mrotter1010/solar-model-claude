@@ -254,22 +254,72 @@ class CECDatabase:
             idcmax=data["Idcmax"],
         )
 
-    def list_modules(self, search_term: Optional[str] = None) -> list[str]:
-        """List available module names, optionally filtered by search term."""
-        all_modules = list(self.module_db.keys())
+    def list_modules(
+        self,
+        search_term: Optional[str] = None,
+        min_stc: Optional[float] = None,
+        max_stc: Optional[float] = None,
+    ) -> list[str]:
+        """List available module names, optionally filtered by search and STC range.
 
-        if search_term:
-            search_lower = search_term.lower()
-            return [m for m in all_modules if search_lower in m.lower()]
+        Args:
+            search_term: Space-separated tokens; a module matches if ALL tokens
+                appear as case-insensitive substrings in its name.
+            min_stc: Minimum STC power (W) filter.
+            max_stc: Maximum STC power (W) filter.
+        """
+        results: list[str] = []
 
-        return all_modules
+        tokens = search_term.lower().split() if search_term else []
 
-    def list_inverters(self, search_term: Optional[str] = None) -> list[str]:
-        """List available inverter names, optionally filtered by search term."""
-        all_inverters = list(self.inverter_db.keys())
+        for name, data in self.module_db.items():
+            # Text filter: every token must appear in the name
+            if tokens:
+                name_lower = name.lower()
+                if not all(tok in name_lower for tok in tokens):
+                    continue
 
-        if search_term:
-            search_lower = search_term.lower()
-            return [i for i in all_inverters if search_lower in i.lower()]
+            # Numeric STC filters
+            if min_stc is not None and data["STC"] < min_stc:
+                continue
+            if max_stc is not None and data["STC"] > max_stc:
+                continue
 
-        return all_inverters
+            results.append(name)
+
+        return results
+
+    def list_inverters(
+        self,
+        search_term: Optional[str] = None,
+        min_paco: Optional[float] = None,
+        max_paco: Optional[float] = None,
+    ) -> list[str]:
+        """List available inverter names, optionally filtered by search and Paco range.
+
+        Args:
+            search_term: Space-separated tokens; an inverter matches if ALL tokens
+                appear as case-insensitive substrings in its name.
+            min_paco: Minimum rated AC power (W) filter.
+            max_paco: Maximum rated AC power (W) filter.
+        """
+        results: list[str] = []
+
+        tokens = search_term.lower().split() if search_term else []
+
+        for name, data in self.inverter_db.items():
+            # Text filter: every token must appear in the name
+            if tokens:
+                name_lower = name.lower()
+                if not all(tok in name_lower for tok in tokens):
+                    continue
+
+            # Numeric Paco filters
+            if min_paco is not None and data["Paco"] < min_paco:
+                continue
+            if max_paco is not None and data["Paco"] > max_paco:
+                continue
+
+            results.append(name)
+
+        return results

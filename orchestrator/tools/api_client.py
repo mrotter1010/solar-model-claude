@@ -1,10 +1,12 @@
 """HTTP client for calling the solar modeling analysis API."""
 
+from __future__ import annotations
+
 import httpx
 
 
 class AnalysisAPIClient:
-    """Async HTTP client wrapping all 13 analysis API endpoints.
+    """Async HTTP client wrapping all 14 analysis API endpoints.
 
     Args:
         base_url: Base URL of the analysis API (e.g. "http://localhost:8000").
@@ -47,18 +49,40 @@ class AnalysisAPIClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def search_modules(self, search: str = "") -> dict:
+    async def search_modules(
+        self,
+        search: str = "",
+        min_stc: float | None = None,
+        max_stc: float | None = None,
+    ) -> dict:
         """Search the CEC module database."""
-        params = {"search": search} if search else {}
+        params: dict[str, str | float] = {}
+        if search:
+            params["search"] = search
+        if min_stc is not None:
+            params["min_stc"] = min_stc
+        if max_stc is not None:
+            params["max_stc"] = max_stc
         resp = await self._client.get(
             "/analyses/equipment/modules", params=params
         )
         resp.raise_for_status()
         return resp.json()
 
-    async def search_inverters(self, search: str = "") -> dict:
+    async def search_inverters(
+        self,
+        search: str = "",
+        min_paco: float | None = None,
+        max_paco: float | None = None,
+    ) -> dict:
         """Search the CEC inverter database."""
-        params = {"search": search} if search else {}
+        params: dict[str, str | float] = {}
+        if search:
+            params["search"] = search
+        if min_paco is not None:
+            params["min_paco"] = min_paco
+        if max_paco is not None:
+            params["max_paco"] = max_paco
         resp = await self._client.get(
             "/analyses/equipment/inverters", params=params
         )
@@ -68,6 +92,40 @@ class AnalysisAPIClient:
     async def list_load_types(self) -> dict:
         """List available DOE reference building types."""
         resp = await self._client.get("/analyses/load-types")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_lmp_prices(
+        self,
+        iso: str,
+        zone: str | None = None,
+        lat: float | None = None,
+        lon: float | None = None,
+        market: str | None = None,
+        year: int | None = None,
+    ) -> dict:
+        """Query historical LMP prices for an ISO zone.
+
+        Args:
+            iso: ISO/RTO identifier (pjm, ercot, caiso).
+            zone: Pricing zone name. Required if lat/lon not provided.
+            lat: Latitude for zone auto-detection.
+            lon: Longitude for zone auto-detection.
+            market: Market type (default: DAY_AHEAD_HOURLY).
+            year: Calendar year (default: previous year).
+        """
+        params: dict[str, str | float | int] = {"iso": iso}
+        if zone is not None:
+            params["zone"] = zone
+        if lat is not None:
+            params["lat"] = lat
+        if lon is not None:
+            params["lon"] = lon
+        if market is not None:
+            params["market"] = market
+        if year is not None:
+            params["year"] = year
+        resp = await self._client.get("/lmp/prices", params=params)
         resp.raise_for_status()
         return resp.json()
 
@@ -142,7 +200,7 @@ class AnalysisAPIClient:
         """Dispatch a tool call to the appropriate method.
 
         Args:
-            tool_name: One of the 12 tool names from TOOL_DEFINITIONS.
+            tool_name: One of the 13 tool names from TOOL_DEFINITIONS.
             arguments: The arguments dict from OpenAI's function call.
 
         Returns:
@@ -155,11 +213,15 @@ class AnalysisAPIClient:
             return await self.health_check()
         elif tool_name == "search_modules":
             return await self.search_modules(
-                search=arguments.get("search", "")
+                search=arguments.get("search", ""),
+                min_stc=arguments.get("min_stc"),
+                max_stc=arguments.get("max_stc"),
             )
         elif tool_name == "search_inverters":
             return await self.search_inverters(
-                search=arguments.get("search", "")
+                search=arguments.get("search", ""),
+                min_paco=arguments.get("min_paco"),
+                max_paco=arguments.get("max_paco"),
             )
         elif tool_name == "list_load_types":
             return await self.list_load_types()
@@ -182,5 +244,14 @@ class AnalysisAPIClient:
             return await self.get_report(run_id=arguments["run_id"])
         elif tool_name == "get_timeseries":
             return await self.get_timeseries(run_id=arguments["run_id"])
+        elif tool_name == "get_lmp_prices":
+            return await self.get_lmp_prices(
+                iso=arguments["iso"],
+                zone=arguments.get("zone"),
+                lat=arguments.get("lat"),
+                lon=arguments.get("lon"),
+                market=arguments.get("market"),
+                year=arguments.get("year"),
+            )
         else:
             raise ValueError(f"Unknown tool: {tool_name}")

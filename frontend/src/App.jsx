@@ -7,7 +7,7 @@ import ErrorBanner from './components/ErrorBanner';
 import FileUpload from './components/FileUpload';
 
 function App() {
-  const { sessionId, messages, isLoading, pendingPlan, sendMessage, approvePlan, injectUploadMessage } = useChat();
+  const { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, injectUploadMessage } = useChat();
   const { isUploading, uploadError, lastUpload, uploadFile, clearUploadError } = useFileUpload();
   const [globalError, setGlobalError] = useState(null);
 
@@ -41,7 +41,7 @@ function App() {
         {globalError && (
           <ErrorBanner message={globalError} onDismiss={() => setGlobalError(null)} />
         )}
-        <ChatPanel messages={messages} isLoading={isLoading} pendingPlan={pendingPlan} onApprove={approvePlan} />
+        <ChatPanel messages={messages} isLoading={isLoading} pendingPlan={pendingPlan} executionSteps={executionSteps} onApprove={approvePlan} />
         <MessageInput onSend={sendMessage} disabled={isLoading} />
       </main>
     </div>

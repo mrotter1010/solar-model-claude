@@ -1,4 +1,4 @@
-"""OpenAI function/tool schemas for the 12 analysis API tools."""
+"""OpenAI function/tool schemas for the 13 analysis API tools."""
 
 TOOL_DEFINITIONS: list[dict] = [
     {
@@ -22,9 +22,11 @@ TOOL_DEFINITIONS: list[dict] = [
             "name": "search_modules",
             "description": (
                 "Search the CEC module database (~20,000 modules) by manufacturer "
-                "or model name. Returns exact CEC-listed names that can be used in "
-                "the 'module' field of analysis requests. Always use this to find "
-                "the correct module string before running an analysis."
+                "or model name. Supports multi-token queries (e.g., 'Trina Solar 550' "
+                "matches names containing all three tokens). Returns exact CEC-listed "
+                "names that can be used in the 'module' field of analysis requests. "
+                "Always use this to find the correct module string before running an "
+                "analysis. Use min_stc/max_stc to filter by wattage."
             ),
             "parameters": {
                 "type": "object",
@@ -32,11 +34,26 @@ TOOL_DEFINITIONS: list[dict] = [
                     "search": {
                         "type": "string",
                         "description": (
-                            "Case-insensitive search string. Use CEC "
-                            "manufacturer prefixes. Examples: "
+                            "Case-insensitive search string. Supports "
+                            "multi-token queries — all tokens must appear "
+                            "in the module name. Examples: "
                             "'CSI Solar 550', 'Trina Solar 550', "
                             "'LONGi Green Energy', 'Jinko Solar', "
                             "'First Solar'"
+                        ),
+                    },
+                    "min_stc": {
+                        "type": "number",
+                        "description": (
+                            "Minimum STC power in watts. Use to filter "
+                            "by wattage range (e.g., 540 for >=540W)."
+                        ),
+                    },
+                    "max_stc": {
+                        "type": "number",
+                        "description": (
+                            "Maximum STC power in watts. Use to filter "
+                            "by wattage range (e.g., 560 for <=560W)."
                         ),
                     },
                 },
@@ -50,8 +67,11 @@ TOOL_DEFINITIONS: list[dict] = [
             "name": "search_inverters",
             "description": (
                 "Search the CEC inverter database (~2,000 inverters) by "
-                "manufacturer or model name. Returns exact CEC-listed names "
-                "that can be used in the 'inverter' field of analysis requests."
+                "manufacturer or model name. Supports multi-token queries "
+                "(e.g., 'Sungrow 250' matches names containing both tokens). "
+                "Returns exact CEC-listed names that can be used in the "
+                "'inverter' field of analysis requests. Use min_paco/max_paco "
+                "to filter by AC power rating."
             ),
             "parameters": {
                 "type": "object",
@@ -59,10 +79,25 @@ TOOL_DEFINITIONS: list[dict] = [
                     "search": {
                         "type": "string",
                         "description": (
-                            "Case-insensitive search string. Use CEC "
-                            "manufacturer prefixes. Examples: "
+                            "Case-insensitive search string. Supports "
+                            "multi-token queries — all tokens must appear "
+                            "in the inverter name. Examples: "
                             "'SMA America', 'Sungrow Power Supply', "
                             "'Power Electronics', 'SolarEdge Technologies'"
+                        ),
+                    },
+                    "min_paco": {
+                        "type": "number",
+                        "description": (
+                            "Minimum rated AC power in watts. Use to filter "
+                            "by inverter size (e.g., 200000 for >=200kW)."
+                        ),
+                    },
+                    "max_paco": {
+                        "type": "number",
+                        "description": (
+                            "Maximum rated AC power in watts. Use to filter "
+                            "by inverter size (e.g., 350000 for <=350kW)."
                         ),
                     },
                 },
@@ -980,6 +1015,71 @@ TOOL_DEFINITIONS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_lmp_prices",
+            "description": (
+                "Query historical locational marginal prices (LMP) for a US "
+                "ISO/RTO market. Returns summary statistics (mean, median, "
+                "min, max), monthly averages, and the full 8760 hourly price "
+                "series. Use this when the user asks about electricity prices, "
+                "wholesale market prices, or LMP data without needing a full "
+                "solar or BESS analysis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "iso": {
+                        "type": "string",
+                        "enum": ["pjm", "ercot", "caiso"],
+                        "description": (
+                            "ISO/RTO market identifier"
+                        ),
+                    },
+                    "zone": {
+                        "type": "string",
+                        "description": (
+                            "Pricing zone (e.g., AEP, LZ_HOUSTON, NP15). "
+                            "Required if lat/lon not provided."
+                        ),
+                    },
+                    "lat": {
+                        "type": "number",
+                        "description": (
+                            "Latitude for zone auto-detection. Must pair "
+                            "with lon."
+                        ),
+                    },
+                    "lon": {
+                        "type": "number",
+                        "description": (
+                            "Longitude for zone auto-detection. Must pair "
+                            "with lat."
+                        ),
+                    },
+                    "market": {
+                        "type": "string",
+                        "enum": [
+                            "DAY_AHEAD_HOURLY",
+                            "REAL_TIME_HOURLY",
+                        ],
+                        "description": (
+                            "Market type (default: 'DAY_AHEAD_HOURLY')"
+                        ),
+                    },
+                    "year": {
+                        "type": "integer",
+                        "description": (
+                            "Calendar year for historical data "
+                            "(default: previous year)"
+                        ),
+                    },
+                },
+                "required": ["iso"],
+            },
+        },
+    },
 ]
 
 TOOL_ENDPOINTS: dict[str, tuple[str, str]] = {
@@ -995,4 +1095,5 @@ TOOL_ENDPOINTS: dict[str, tuple[str, str]] = {
     "get_results": ("GET", "/analyses/{run_id}/results"),
     "get_report": ("GET", "/analyses/{run_id}/report"),
     "get_timeseries": ("GET", "/analyses/{run_id}/timeseries"),
+    "get_lmp_prices": ("GET", "/lmp/prices"),
 }

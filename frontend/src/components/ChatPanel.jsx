@@ -4,14 +4,15 @@ import MessageBubble from './MessageBubble';
 import PlanCard from './PlanCard';
 import ResultsCard from './ResultsCard';
 import LoadingState from './LoadingState';
+import ExecutionProgress from './ExecutionProgress';
 import { CONFIG } from '../config.js';
 
-export default function ChatPanel({ messages, isLoading, pendingPlan, onApprove }) {
+export default function ChatPanel({ messages, isLoading, pendingPlan, executionSteps = [], onApprove }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  }, [messages, isLoading, executionSteps]);
 
   // Find the index of the last plan message to decide where to show the button
   let lastPlanIndex = -1;
@@ -57,7 +58,10 @@ export default function ChatPanel({ messages, isLoading, pendingPlan, onApprove 
         }
         return <MessageBubble key={msg.id} message={msg} />;
       })}
-      {isLoading && <LoadingState />}
+      {isLoading && executionSteps.length > 0 && (
+        <ExecutionProgress steps={executionSteps} />
+      )}
+      {isLoading && executionSteps.length === 0 && <LoadingState />}
       <div ref={bottomRef} />
     </div>
   );

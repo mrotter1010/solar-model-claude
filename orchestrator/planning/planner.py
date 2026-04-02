@@ -104,7 +104,11 @@ class Planner:
                 "content": (
                     "The user has approved the above plan. Execute it now by "
                     "calling the appropriate tools in the order specified in "
-                    "the plan. Call one tool at a time."
+                    "the plan. Call one tool at a time. "
+                    "IMPORTANT: For equipment searches, call search_modules "
+                    "once and search_inverters once. After getting results "
+                    "with count > 0, stop searching and use those exact name "
+                    "strings (copied verbatim) in the production call."
                 ),
             },
         ]

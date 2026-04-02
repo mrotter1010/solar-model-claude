@@ -2,9 +2,19 @@
 
 import json
 import logging
+from collections.abc import AsyncGenerator
 
 from orchestrator.conversation.manager import ConversationManager
 from orchestrator.conversation.models import ChatMessage, SessionStatus
+from orchestrator.planning.events import (
+    DoneEvent,
+    ErrorEvent,
+    ExecutionEvent,
+    StepCompleteEvent,
+    StepStartEvent,
+    SynthesisEvent,
+    _truncate,
+)
 from orchestrator.planning.planner import Planner
 from orchestrator.tools.api_client import AnalysisAPIClient
 
@@ -59,50 +69,65 @@ class Executor:
         self._conversation_manager = conversation_manager
         self._max_steps = max_steps
 
-    async def execute_plan(self, session_id: str) -> ExecutionResult:
-        """Execute the approved plan for a session.
+    async def _execute_plan_generator(
+        self, session_id: str
+    ) -> AsyncGenerator[ExecutionEvent, None]:
+        """Execute the approved plan, yielding events as steps complete.
+
+        This is the core execution logic. It manages session state internally
+        and yields events for each significant execution milestone.
 
         Args:
             session_id: The conversation session to execute.
 
-        Returns:
-            ExecutionResult with step details, synthesis, and status.
+        Yields:
+            ExecutionEvent instances in order: StepStart/StepComplete pairs,
+            then SynthesisEvent (or ErrorEvent), then DoneEvent.
         """
-        result = ExecutionResult()
+        step_count = 0
+        overall_success = True
 
         # --- Validate session state ---
         session = self._conversation_manager.get_session(session_id)
         if session is None:
-            result.success = False
-            result.error = f"Session not found: {session_id}"
-            return result
+            yield ErrorEvent(message=f"Session not found: {session_id}")
+            yield DoneEvent(success=False, total_steps=0)
+            return
 
         if session.status != SessionStatus.PLAN_PENDING:
-            result.success = False
-            result.error = (
-                f"Session status is {session.status.value}, "
-                f"expected plan_pending"
+            yield ErrorEvent(
+                message=(
+                    f"Session status is {session.status.value}, "
+                    f"expected plan_pending"
+                )
             )
-            return result
+            yield DoneEvent(success=False, total_steps=0)
+            return
 
         approved_plan = session.pending_plan or ""
 
         # --- Begin execution ---
-        self._conversation_manager.set_status(session_id, SessionStatus.EXECUTING)
+        self._conversation_manager.set_status(
+            session_id, SessionStatus.EXECUTING
+        )
 
         try:
-            messages = self._conversation_manager.get_openai_messages(session_id)
+            messages = self._conversation_manager.get_openai_messages(
+                session_id
+            )
             response = await self._planner.generate_execution_calls(
                 messages, approved_plan
             )
         except Exception as exc:
-            logger.error("OpenAI call failed during execution start: %s", exc)
-            result.success = False
-            result.error = f"OpenAI error: {exc}"
+            logger.error(
+                "OpenAI call failed during execution start: %s", exc
+            )
+            yield ErrorEvent(message=f"OpenAI error: {exc}")
             self._conversation_manager.set_status(
                 session_id, SessionStatus.PLAN_PENDING
             )
-            return result
+            yield DoneEvent(success=False, total_steps=0)
+            return
 
         # --- Tool-call loop ---
         iterations = 0
@@ -111,7 +136,7 @@ class Executor:
 
             # No tool calls → synthesis reached
             if not choice.message.tool_calls:
-                result.synthesis = choice.message.content or ""
+                yield SynthesisEvent(text=choice.message.content or "")
                 break
 
             iterations += 1
@@ -144,6 +169,15 @@ class Executor:
                 except json.JSONDecodeError:
                     arguments = {}
 
+                step_count += 1
+
+                # Yield start event before executing
+                yield StepStartEvent(
+                    step_number=step_count,
+                    tool_name=tool_name,
+                    tool_input=_truncate(json.dumps(arguments), 200),
+                )
+
                 step: dict = {
                     "tool": tool_name,
                     "arguments": arguments,
@@ -161,7 +195,11 @@ class Executor:
                     if isinstance(api_result, bytes):
                         tool_content = json.dumps({
                             "status": "downloaded",
-                            "type": "pdf" if tool_name == "get_report" else "csv",
+                            "type": (
+                                "pdf"
+                                if tool_name == "get_report"
+                                else "csv"
+                            ),
                             "size_bytes": len(api_result),
                         })
                         step["result"] = {
@@ -186,13 +224,20 @@ class Executor:
                     )
                     step["success"] = False
                     step["error"] = str(exc)
-                    result.success = False
+                    overall_success = False
                     tool_content = json.dumps({
                         "error": str(exc),
                         "tool": tool_name,
                     })
 
-                result.steps.append(step)
+                # Yield complete event after executing
+                yield StepCompleteEvent(
+                    step_number=step_count,
+                    tool_name=tool_name,
+                    success=step["success"],
+                    result_summary=_truncate(tool_content, 500),
+                    step_data=step,
+                )
 
                 # Add tool result message to conversation
                 self._conversation_manager.add_message(
@@ -213,20 +258,49 @@ class Executor:
                 response = await self._planner.continue_execution(messages)
             except Exception as exc:
                 logger.error("OpenAI call failed during loop: %s", exc)
-                result.success = False
-                result.error = f"OpenAI error: {exc}"
+                yield ErrorEvent(message=f"OpenAI error: {exc}")
+                overall_success = False
                 self._conversation_manager.set_status(
                     session_id, SessionStatus.PLAN_PENDING
                 )
-                return result
+                yield DoneEvent(success=False, total_steps=step_count)
+                return
         else:
             # Loop hit max_steps without synthesis
-            result.synthesis = (
-                "Execution stopped: maximum step limit reached."
+            yield SynthesisEvent(
+                text="Execution stopped: maximum step limit reached."
             )
 
         # --- Finalize ---
         self._conversation_manager.set_status(
             session_id, SessionStatus.COMPLETE
         )
+        yield DoneEvent(success=overall_success, total_steps=step_count)
+
+    async def execute_plan(self, session_id: str) -> ExecutionResult:
+        """Execute the approved plan for a session.
+
+        Synchronous wrapper that consumes the event generator and builds
+        an ExecutionResult with the same structure as the original
+        implementation. This is what the /chat/approve endpoint calls.
+
+        Args:
+            session_id: The conversation session to execute.
+
+        Returns:
+            ExecutionResult with step details, synthesis, and status.
+        """
+        result = ExecutionResult()
+
+        async for event in self._execute_plan_generator(session_id):
+            if isinstance(event, StepCompleteEvent):
+                result.steps.append(event.step_data)
+                if not event.success:
+                    result.success = False
+            elif isinstance(event, SynthesisEvent):
+                result.synthesis = event.text
+            elif isinstance(event, ErrorEvent):
+                result.success = False
+                result.error = event.message
+
         return result

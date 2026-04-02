@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.auth import APIKeyMiddleware
 from src.api.routes.analyses import router as analyses_router
 from src.api.routes.equipment import router as equipment_router
+from src.api.routes.lmp import router as lmp_router
 from src.api.routes.rates import router as rates_router
 from src.api.routes.results import router as results_router
 from src.api.routes.uploads import router as uploads_router
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
 
     app.include_router(analyses_router)
     app.include_router(equipment_router)
+    app.include_router(lmp_router)
     app.include_router(rates_router)
     app.include_router(results_router)
     app.include_router(uploads_router)

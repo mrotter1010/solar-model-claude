@@ -219,13 +219,25 @@ When `bess.solar_only_charging = true`, the battery can only charge from solar g
 
 ### Equipment Selection
 
-The API includes ~20,000 CEC-listed modules and ~2,000 CEC-listed inverters. When the user doesn't specify equipment:
+The API includes ~20,000 CEC-listed modules and ~2,000 CEC-listed inverters. The search supports **multi-token queries** — all space-separated tokens must appear as substrings in the equipment name (case-insensitive). For example, "Trina Solar 550" matches "Trina Solar TSM-550DE19" because all three tokens ("trina", "solar", "550") appear in the name.
+
+**Numeric filters** are also available:
+- **Modules**: `min_stc` and `max_stc` filter by STC rated power in watts.
+- **Inverters**: `min_paco` and `max_paco` filter by rated AC power in watts.
+
+**Search strategy by query type**:
+- **Manufacturer + wattage** (e.g., "Trina 550W"): Search with `search=Trina Solar` and `min_stc=540&max_stc=560` to bracket the wattage.
+- **Manufacturer only** (e.g., "Canadian Solar"): Search with `search=CSI Solar` and `min_stc=500` to limit results to utility-scale modules.
+- **Wattage only** (e.g., "550W modules"): Search with `min_stc=540&max_stc=560` to find all manufacturers at that wattage.
+- **Inverters by size**: When sizing to match the AC system capacity, use `min_paco` to filter to appropriately sized inverters. For a 5 MW AC system, individual inverter sizes typically range from 100kW to 350kW for string inverters (`min_paco=100000&max_paco=350000`), or 2–5 MW for central inverters (`min_paco=2000000&max_paco=5000000`).
 
 **Default approach**: Search for equipment using the `/analyses/equipment/modules` and `/analyses/equipment/inverters` endpoints. For utility-scale:
 - **Modules**: Search using the exact CEC manufacturer prefixes: "CSI Solar" (Canadian Solar), "Trina Solar" (Trina), "LONGi Green Energy" (LONGi), "Jinko Solar" (Jinko), "First Solar" (First Solar). Do NOT search "Canadian Solar" or "JinkoSolar" — these return zero results. Prefer modules in the 500–700W range for current utility-scale projects. Bifacial is increasingly standard for trackers.
 - **Inverters**: Search using exact CEC manufacturer prefixes: "SMA America" (SMA), "Sungrow Power Supply" (Sungrow), "POWER ELECTRONICS" or "Power Electronics" (Power Electronics), "SolarEdge Technologies" (SolarEdge), "Enphase Energy" (Enphase, for C&I). Match inverter AC capacity to the system design.
 
 If the user mentions a specific manufacturer or wattage, search the equipment database to find the exact CEC-listed name — the API requires exact string matches.
+
+**CRITICAL — Equipment Name Accuracy**: The `module` and `inverter` fields in all analysis endpoints (`run_production`, `run_bill_savings`, `run_bess`) require an EXACT string match against the CEC database. Always use `search_modules` and `search_inverters` to find the correct string, then copy it character-for-character into your API call. Do NOT construct, abbreviate, or retype equipment names from memory — CEC names have specific formatting (e.g., `Sungrow Power Supply Co - Ltd : SG250HX-US [800V]`) that cannot be reliably reproduced from memory. Even a single wrong character (e.g., "SG2500UD" vs "SC2500UD", "Technologies" vs "Technology") will cause a 422 or 500 error.
 
 ---
 
@@ -401,7 +413,23 @@ Recommend deeper analysis when:
 
 - **Always search** when the user mentions a brand or model by name — never guess the exact CEC string.
 - **Search for defaults** when the user doesn't specify equipment but you need to propose a system design.
-- **Search for equipment (modules and inverters) once per session.** After the first successful search, reuse those results for all subsequent analyses in the same conversation. Do not call `search_modules` or `search_inverters` again if you already have results from a previous turn — your earlier search results are visible in your message history. Review your conversation history before making any equipment search call.
+
+**CRITICAL — Search Once, Copy Exactly:**
+
+1. **Search once per equipment type.** Call `search_modules` once and `search_inverters` once. After you receive results with `count > 0`, you have found your equipment — **stop searching**. Do NOT call `search_modules` or `search_inverters` again with a different query. Your earlier search results are visible in your conversation history.
+
+2. **Copy the exact name string from search results.** When calling `run_production`, `run_bill_savings`, or `run_bess`, the `module` and `inverter` fields MUST be the EXACT string from the search response. Do not modify, abbreviate, reconstruct, or retype equipment names from memory. Even a single character difference will cause a 422 or 500 error.
+
+3. **If the first search returns 0 results**, try ONE broader search (e.g., drop the model number and search by manufacturer prefix only). If that also returns 0, report to the user that the equipment was not found in the CEC database and ask for an alternative.
+
+4. **Maximum 2 calls per equipment type** (one specific, one broad fallback if needed). Never call `search_modules` more than twice or `search_inverters` more than twice in a single execution.
+
+5. **Example — correct flow:**
+   - Call `search_modules({"search": "CSI Solar CS6R-410"})` → `{"count": 2, "modules": ["CSI Solar Co. Ltd. CS6R-410MS-HL [Blk]", "CSI Solar Co. Ltd. CS6R-410MS-HL [Wht]"]}`
+   - Call `search_inverters({"search": "Sungrow Power Supply SG250"})` → `{"count": 1, "inverters": ["Sungrow Power Supply Co - Ltd : SG250HX-US [800V]"]}`
+   - Call `run_production` with `"module": "CSI Solar Co. Ltd. CS6R-410MS-HL [Wht]"` and `"inverter": "Sungrow Power Supply Co - Ltd : SG250HX-US [800V]"` — **copied verbatim from the search results above**. Done. No further equipment searches.
+
+6. **Common mistake to avoid:** After finding 2 matching modules (count=2), do NOT search again with a different term to "find more options." Pick one from the results you have and move on to the production run.
 
 ### Rate Builder vs. Rate File
 
@@ -467,18 +495,26 @@ Check API availability.
 
 ### search_modules
 
-Search the CEC module database.
+Search the CEC module database. Supports multi-token queries and numeric STC filters.
 
 ```json
 {
   "name": "search_modules",
-  "description": "Search the CEC module database (~20,000 modules) by manufacturer or model name. Returns exact CEC-listed names that can be used in the 'module' field of analysis requests. Always use this to find the correct module string before running an analysis.",
+  "description": "Search the CEC module database (~20,000 modules) by manufacturer or model name. Supports multi-token queries (e.g., 'Trina Solar 550' matches names containing all three tokens). Use min_stc/max_stc to filter by wattage.",
   "parameters": {
     "type": "object",
     "properties": {
       "search": {
         "type": "string",
-        "description": "Case-insensitive search string. Use CEC manufacturer prefixes. Examples: 'CSI Solar 550', 'Trina Solar 550', 'LONGi Green Energy', 'Jinko Solar', 'First Solar'"
+        "description": "Case-insensitive multi-token search. All tokens must appear in the module name. Examples: 'CSI Solar 550', 'Trina Solar 550', 'LONGi Green Energy', 'Jinko Solar', 'First Solar'"
+      },
+      "min_stc": {
+        "type": "number",
+        "description": "Minimum STC power in watts (e.g., 540 for >=540W)"
+      },
+      "max_stc": {
+        "type": "number",
+        "description": "Maximum STC power in watts (e.g., 560 for <=560W)"
       }
     },
     "required": []
@@ -486,22 +522,30 @@ Search the CEC module database.
 }
 ```
 
-**Endpoint**: `GET /analyses/equipment/modules?search={search}`
+**Endpoint**: `GET /analyses/equipment/modules?search={search}&min_stc={min_stc}&max_stc={max_stc}`
 
 ### search_inverters
 
-Search the CEC inverter database.
+Search the CEC inverter database. Supports multi-token queries and numeric Paco filters.
 
 ```json
 {
   "name": "search_inverters",
-  "description": "Search the CEC inverter database (~2,000 inverters) by manufacturer or model name. Returns exact CEC-listed names that can be used in the 'inverter' field of analysis requests.",
+  "description": "Search the CEC inverter database (~2,000 inverters) by manufacturer or model name. Supports multi-token queries (e.g., 'Sungrow 250' matches names containing both tokens). Use min_paco/max_paco to filter by AC power rating.",
   "parameters": {
     "type": "object",
     "properties": {
       "search": {
         "type": "string",
-        "description": "Case-insensitive search string. Use CEC manufacturer prefixes. Examples: 'SMA America', 'Sungrow Power Supply', 'Power Electronics', 'SolarEdge Technologies'"
+        "description": "Case-insensitive multi-token search. All tokens must appear in the inverter name. Examples: 'SMA America', 'Sungrow Power Supply', 'Power Electronics', 'SolarEdge Technologies'"
+      },
+      "min_paco": {
+        "type": "number",
+        "description": "Minimum rated AC power in watts (e.g., 200000 for >=200kW)"
+      },
+      "max_paco": {
+        "type": "number",
+        "description": "Maximum rated AC power in watts (e.g., 350000 for <=350kW)"
       }
     },
     "required": []
@@ -509,7 +553,7 @@ Search the CEC inverter database.
 }
 ```
 
-**Endpoint**: `GET /analyses/equipment/inverters?search={search}`
+**Endpoint**: `GET /analyses/equipment/inverters?search={search}&min_paco={min_paco}&max_paco={max_paco}`
 
 ### list_load_types
 
@@ -909,6 +953,41 @@ Download the 8760 hourly timeseries CSV.
 ```
 
 **Endpoint**: `GET /analyses/{run_id}/timeseries`
+
+### get_lmp_prices
+
+Query historical locational marginal prices (LMP) for a US ISO/RTO market.
+
+**When to use**: The user asks about electricity prices, wholesale market prices, or LMP data *without* needing a full solar or BESS analysis. Example queries:
+- "What are PJM day-ahead prices?"
+- "Show me ERCOT prices for 2024"
+- "What's the average LMP in CAISO?"
+- "Compare day-ahead vs real-time prices in PJM AEP zone"
+
+**Zone resolution**: Provide either `zone` directly (e.g., "AEP", "LZ_HOUSTON", "NP15") or `lat`+`lon` for auto-detection. At least one of these is required.
+
+**ISO coverage**: PJM, ERCOT, and CAISO only — same as FTM wholesale dispatch.
+
+```json
+{
+  "name": "get_lmp_prices",
+  "description": "Query historical locational marginal prices (LMP) for a US ISO/RTO market. Returns summary statistics (mean, median, min, max), monthly averages, and the full 8760 hourly price series. Use this when the user asks about electricity prices, wholesale market prices, or LMP data without needing a full solar or BESS analysis.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "iso": { "type": "string", "enum": ["pjm", "ercot", "caiso"], "description": "ISO/RTO market identifier" },
+      "zone": { "type": "string", "description": "Pricing zone (e.g., AEP, LZ_HOUSTON, NP15). Required if lat/lon not provided." },
+      "lat": { "type": "number", "description": "Latitude for zone auto-detection. Must pair with lon." },
+      "lon": { "type": "number", "description": "Longitude for zone auto-detection. Must pair with lat." },
+      "market": { "type": "string", "enum": ["DAY_AHEAD_HOURLY", "REAL_TIME_HOURLY"], "description": "Market type (default: 'DAY_AHEAD_HOURLY')" },
+      "year": { "type": "integer", "description": "Calendar year for historical data (default: previous year)" }
+    },
+    "required": ["iso"]
+  }
+}
+```
+
+**Endpoint**: `GET /lmp/prices?iso={iso}&zone={zone}&lat={lat}&lon={lon}&market={market}&year={year}`
 
 ---
 

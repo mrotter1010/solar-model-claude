@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from orchestrator.tools.api_client import AnalysisAPIClient
+from orchestrator.tools.definitions import TOOL_DEFINITIONS, TOOL_ENDPOINTS
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +142,131 @@ class TestListLoadTypes:
 
         mock_httpx_client.get.assert_called_once_with("/analyses/load-types")
         assert result == {"load_types": ["MediumOffice", "RetailStandalone"]}
+
+
+class TestGetLmpPrices:
+
+    @pytest.mark.anyio
+    async def test_get_lmp_prices_with_zone(self, api_client, mock_httpx_client):
+        """GET /lmp/prices with iso and zone query params."""
+        mock_httpx_client.get.return_value = _mock_json_response(
+            {"iso": "pjm", "zone": "AEP", "summary": {"mean_price": 35.50}}
+        )
+
+        result = await api_client.get_lmp_prices(iso="pjm", zone="AEP")
+
+        mock_httpx_client.get.assert_called_once_with(
+            "/lmp/prices", params={"iso": "pjm", "zone": "AEP"}
+        )
+        assert result["iso"] == "pjm"
+        assert result["zone"] == "AEP"
+
+    @pytest.mark.anyio
+    async def test_get_lmp_prices_with_latlon(self, api_client, mock_httpx_client):
+        """GET /lmp/prices with lat/lon for zone auto-detection."""
+        mock_httpx_client.get.return_value = _mock_json_response(
+            {"iso": "ercot", "zone": "LZ_HOUSTON"}
+        )
+
+        result = await api_client.get_lmp_prices(
+            iso="ercot", lat=29.76, lon=-95.37
+        )
+
+        mock_httpx_client.get.assert_called_once_with(
+            "/lmp/prices", params={"iso": "ercot", "lat": 29.76, "lon": -95.37}
+        )
+        assert result["zone"] == "LZ_HOUSTON"
+
+    @pytest.mark.anyio
+    async def test_get_lmp_prices_all_params(self, api_client, mock_httpx_client):
+        """GET /lmp/prices with all optional params populated."""
+        mock_httpx_client.get.return_value = _mock_json_response(
+            {"iso": "caiso", "zone": "NP15", "market": "REAL_TIME_HOURLY", "year": 2024}
+        )
+
+        result = await api_client.get_lmp_prices(
+            iso="caiso", zone="NP15", market="REAL_TIME_HOURLY", year=2024
+        )
+
+        mock_httpx_client.get.assert_called_once_with(
+            "/lmp/prices",
+            params={
+                "iso": "caiso",
+                "zone": "NP15",
+                "market": "REAL_TIME_HOURLY",
+                "year": 2024,
+            },
+        )
+        assert result["market"] == "REAL_TIME_HOURLY"
+        assert result["year"] == 2024
+
+    @pytest.mark.anyio
+    async def test_get_lmp_prices_iso_only(self, api_client, mock_httpx_client):
+        """GET /lmp/prices with iso only — no optional params sent."""
+        mock_httpx_client.get.return_value = _mock_json_response(
+            {"iso": "pjm"}
+        )
+
+        await api_client.get_lmp_prices(iso="pjm")
+
+        mock_httpx_client.get.assert_called_once_with(
+            "/lmp/prices", params={"iso": "pjm"}
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tool definition validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestToolDefinitions:
+
+    def test_get_lmp_prices_definition_exists(self):
+        """get_lmp_prices tool definition is present in TOOL_DEFINITIONS."""
+        tool_names = [t["function"]["name"] for t in TOOL_DEFINITIONS]
+        assert "get_lmp_prices" in tool_names
+
+    def test_get_lmp_prices_definition_schema(self):
+        """get_lmp_prices definition has correct required params and enum."""
+        defn = next(
+            t for t in TOOL_DEFINITIONS
+            if t["function"]["name"] == "get_lmp_prices"
+        )
+        func = defn["function"]
+
+        # Top-level structure
+        assert defn["type"] == "function"
+        assert "description" in func
+        assert func["parameters"]["type"] == "object"
+
+        # Required params
+        assert func["parameters"]["required"] == ["iso"]
+
+        # iso enum
+        props = func["parameters"]["properties"]
+        assert props["iso"]["enum"] == ["pjm", "ercot", "caiso"]
+
+        # Optional params exist
+        for param in ("zone", "lat", "lon", "market", "year"):
+            assert param in props, f"Missing param: {param}"
+
+    def test_get_lmp_prices_endpoint_mapping(self):
+        """TOOL_ENDPOINTS maps get_lmp_prices to GET /lmp/prices."""
+        assert "get_lmp_prices" in TOOL_ENDPOINTS
+        method, path = TOOL_ENDPOINTS["get_lmp_prices"]
+        assert method == "GET"
+        assert path == "/lmp/prices"
+
+    def test_tool_count(self):
+        """TOOL_DEFINITIONS has 13 tools and TOOL_ENDPOINTS has 13 entries."""
+        assert len(TOOL_DEFINITIONS) == 13
+        assert len(TOOL_ENDPOINTS) == 13
+
+    def test_all_tools_have_endpoints(self):
+        """Every tool in TOOL_DEFINITIONS has a matching TOOL_ENDPOINTS entry."""
+        tool_names = {t["function"]["name"] for t in TOOL_DEFINITIONS}
+        endpoint_names = set(TOOL_ENDPOINTS.keys())
+        assert tool_names == endpoint_names
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +472,25 @@ class TestExecuteToolDispatch:
             "/analyses/production", json=payload
         )
         assert result["run_id"] == "run-abc"
+
+    @pytest.mark.anyio
+    async def test_execute_tool_dispatch_lmp(self, api_client, mock_httpx_client):
+        """execute_tool dispatches get_lmp_prices correctly."""
+        mock_httpx_client.get.return_value = _mock_json_response(
+            {"iso": "ercot", "zone": "LZ_HOUSTON", "summary": {"mean_price": 28.0}}
+        )
+
+        result = await api_client.execute_tool(
+            "get_lmp_prices",
+            {"iso": "ercot", "zone": "LZ_HOUSTON", "year": 2024},
+        )
+
+        mock_httpx_client.get.assert_called_once_with(
+            "/lmp/prices",
+            params={"iso": "ercot", "zone": "LZ_HOUSTON", "year": 2024},
+        )
+        assert result["iso"] == "ercot"
+        assert result["zone"] == "LZ_HOUSTON"
 
     @pytest.mark.anyio
     async def test_execute_tool_unknown(self, api_client):
