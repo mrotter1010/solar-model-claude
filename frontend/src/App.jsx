@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useChat } from './hooks/useChat';
 import { useFileUpload } from './hooks/useFileUpload';
+import Header from './components/Header';
 import ChatPanel from './components/ChatPanel';
 import MessageInput from './components/MessageInput';
 import ErrorBanner from './components/ErrorBanner';
@@ -10,6 +11,8 @@ function App() {
   const { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, injectUploadMessage, resetChat } = useChat();
   const { isUploading, uploadError, lastUpload, uploadFile, clearUploadError } = useFileUpload();
   const [globalError, setGlobalError] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileUploadRef = useRef(null);
 
   useEffect(() => {
     if (lastUpload) {
@@ -17,41 +20,53 @@ function App() {
     }
   }, [lastUpload, injectUploadMessage]);
 
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    // Only clear when leaving the container, not when entering a child
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      fileUploadRef.current?.handleFileDrop(file);
+    }
+  };
+
   return (
-    <div className="h-screen flex bg-gray-50">
-      {/* Left sidebar */}
-      <aside className="w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-4 py-3 flex items-start justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">Solar Analysis</h1>
-            <p className="text-xs text-gray-400 font-mono">{sessionId.slice(0, 8)}</p>
-          </div>
-          <button
-            onClick={resetChat}
-            className="mt-0.5 rounded px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-          >
-            + New Chat
-          </button>
-        </div>
-        <div className="p-4">
+    <div
+      className={`h-screen flex flex-col bg-vantyra-bg ${isDragOver ? 'ring-2 ring-inset ring-vantyra-accent' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <Header onNewChat={resetChat} />
+      {globalError && (
+        <ErrorBanner message={globalError} onDismiss={() => setGlobalError(null)} />
+      )}
+      <ChatPanel messages={messages} isLoading={isLoading} pendingPlan={pendingPlan} executionSteps={executionSteps} onApprove={approvePlan} />
+      <MessageInput
+        onSend={sendMessage}
+        disabled={isLoading}
+        leftSlot={
           <FileUpload
+            ref={fileUploadRef}
             onUpload={uploadFile}
             isUploading={isUploading}
             uploadError={uploadError}
             lastUpload={lastUpload}
             onClearError={clearUploadError}
           />
-        </div>
-      </aside>
-
-      {/* Right main area */}
-      <main className="flex-1 flex flex-col min-w-0">
-        {globalError && (
-          <ErrorBanner message={globalError} onDismiss={() => setGlobalError(null)} />
-        )}
-        <ChatPanel messages={messages} isLoading={isLoading} pendingPlan={pendingPlan} executionSteps={executionSteps} onApprove={approvePlan} />
-        <MessageInput onSend={sendMessage} disabled={isLoading} />
-      </main>
+        }
+      />
     </div>
   );
 }

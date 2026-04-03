@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="grad-outer" gradientUnits="userSpaceOnUse" x1="40" y1="5" x2="35" y2="92">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="50%" stop-color="#4488FF"/>
+      <stop offset="100%" stop-color="#9B6DFF"/>
+    </linearGradient>
+    <linearGradient id="grad-mid" gradientUnits="userSpaceOnUse" x1="40" y1="5" x2="35" y2="92">
+      <stop offset="0%" stop-color="#00AADD"/>
+      <stop offset="50%" stop-color="#3366AA"/>
+      <stop offset="100%" stop-color="#7B61FF"/>
+    </linearGradient>
+    <linearGradient id="grad-inner" gradientUnits="userSpaceOnUse" x1="40" y1="5" x2="35" y2="92">
+      <stop offset="0%" stop-color="#0088AA"/>
+      <stop offset="50%" stop-color="#224488"/>
+      <stop offset="100%" stop-color="#5A40CC"/>
+    </linearGradient>
+    <linearGradient id="grad-antenna" gradientUnits="userSpaceOnUse" x1="70" y1="30" x2="76" y2="2">
+      <stop offset="0%" stop-color="#3366AA"/>
+      <stop offset="100%" stop-color="#00D4FF"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- === Outer V — brightest === -->
+  <!-- Left arm: wide blade, sharp tip top-left, widens toward vertex -->
+  <polygon points="4,10 34,86 40,86 18,25" fill="url(#grad-outer)"/>
+  <!-- Right arm: wide blade, vertex to upper-right -->
+  <polygon points="34,86 40,86 80,28 64,24" fill="url(#grad-outer)"/>
+
+  <!-- === Middle V — inset, medium depth === -->
+  <polygon points="12,22 35,80 40,80 24,34" fill="url(#grad-mid)"/>
+  <polygon points="35,80 40,80 74,34 60,30" fill="url(#grad-mid)"/>
+
+  <!-- === Inner V — most inset, darkest === -->
+  <polygon points="20,33 36,74 40,74 29,42" fill="url(#grad-inner)"/>
+  <polygon points="36,74 40,74 68,40 56,37" fill="url(#grad-inner)"/>
+
+  <!-- === Three parallel antenna stems from right arm top edge === -->
+  <!-- All slope: 6 up per 1 right. Spaced evenly across arm width. -->
+  <line x1="67" y1="25" x2="70"   y2="7"  stroke="url(#grad-antenna)" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="72" y1="26" x2="75.5" y2="5"  stroke="url(#grad-antenna)" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="77" y1="27" x2="81"   y2="3"  stroke="url(#grad-antenna)" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Antenna dots with glow — larger dot on tallest -->
+  <circle cx="70"   cy="7" r="2"   fill="#88AAFF" filter="url(#glow)"/>
+  <circle cx="75.5" cy="5" r="2.5" fill="#44CCFF" filter="url(#glow)"/>
+  <circle cx="81"   cy="3" r="3"   fill="#00D4FF" filter="url(#glow)"/>
+</svg>

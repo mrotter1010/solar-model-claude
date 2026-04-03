@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Sun } from 'lucide-react';
+import vantyraIcon from '../assets/vantyra-icon.png';
 import MessageBubble from './MessageBubble';
 import PlanCard from './PlanCard';
 import ResultsCard from './ResultsCard';
@@ -25,9 +25,9 @@ export default function ChatPanel({ messages, isLoading, pendingPlan, executionS
 
   if (messages.length === 0 && !isLoading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-        <Sun className="h-12 w-12 mb-3" />
-        <p className="text-sm">Describe your solar analysis to get started</p>
+      <div className="flex-1 flex flex-col items-center justify-center text-vantyra-text-s">
+        <img src={vantyraIcon} alt="Vantyra" className="h-24 w-24 object-contain mb-3" />
+        <p className="text-sm">Describe the analysis you want to get started</p>
       </div>
     );
   }

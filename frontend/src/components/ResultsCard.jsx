@@ -28,18 +28,18 @@ export default function ResultsCard({ content, steps, analysisApiUrl }) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[75%] rounded-lg border border-green-300 bg-green-50 px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-green-700 mb-2">
+      <div className="max-w-[75%] rounded-lg border border-vantyra-border bg-vantyra-bg-s px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-vantyra-success mb-2">
           Analysis Results
         </p>
-        <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 text-gray-900">
+        <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-pre:bg-[#1a1a2e] prose-pre:text-gray-100 prose-a:text-vantyra-accent prose-headings:text-vantyra-text prose-strong:text-vantyra-text prose-code:text-vantyra-accent">
           <ReactMarkdown>{content}</ReactMarkdown>
         </div>
         {downloadableSteps.length > 0 && (
-          <div className="mt-3 border-t border-green-200 pt-3 space-y-2">
+          <div className="mt-3 border-t border-vantyra-border pt-3 space-y-2">
             {downloadableSteps.map((step, idx) => (
               <div key={idx} className="text-sm">
-                <p className="text-xs font-medium text-gray-600 mb-1">
+                <p className="text-xs font-medium text-vantyra-text-s mb-1">
                   {formatToolName(step.tool)}
                 </p>
                 <div className="flex gap-2">
@@ -47,7 +47,7 @@ export default function ResultsCard({ content, steps, analysisApiUrl }) {
                     href={buildDownloadUrl(analysisApiUrl, step.result.run_id, 'pdf')}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
+                    className="inline-flex items-center gap-1 rounded-xl border-2 border-cyan-300 bg-cyan-500 px-5 py-2.5 text-sm font-bold text-white shadow-[0_0_24px_rgba(0,212,255,0.5)] hover:brightness-110"
                   >
                     <Download size={12} />
                     Download PDF
@@ -57,7 +57,7 @@ export default function ResultsCard({ content, steps, analysisApiUrl }) {
                       href={buildDownloadUrl(analysisApiUrl, step.result.run_id, 'csv')}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded bg-gray-600 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700"
+                      className="inline-flex items-center gap-1 rounded-xl border-2 border-cyan-300 px-5 py-2.5 text-sm font-bold text-cyan-300 hover:bg-vantyra-accent hover:text-white transition-colors"
                     >
                       <Download size={12} />
                       Download CSV

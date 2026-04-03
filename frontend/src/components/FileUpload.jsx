@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { Upload, X, CheckCircle } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { Paperclip, X, CheckCircle, Loader2 } from 'lucide-react';
 
 const FILE_TYPES = [
   { value: 'rate', label: 'Rate Schedule' },
@@ -7,107 +7,142 @@ const FILE_TYPES = [
   { value: 'load-profile', label: 'Load Profile' },
 ];
 
-function FileUpload({ onUpload, isUploading, uploadError, lastUpload, onClearError }) {
+const FileUpload = forwardRef(function FileUpload(
+  { onUpload, isUploading, uploadError, lastUpload, onClearError },
+  ref
+) {
   const [fileType, setFileType] = useState('rate');
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [isDragOver, setIsDragOver] = useState(false);
+  const [showPopover, setShowPopover] = useState(false);
+  const [popoverStyle, setPopoverStyle] = useState({});
   const fileInputRef = useRef(null);
+  const popoverRef = useRef(null);
+  const anchorRef = useRef(null);
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) setSelectedFile(file);
-  };
+  // Expose drop handler so parent can forward drag-and-drop events
+  useImperativeHandle(ref, () => ({
+    handleFileDrop: (file) => {
+      if (!isUploading) {
+        onUpload(file, fileType);
+      }
+    },
+  }));
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
+  // Compute fixed position for popover so it escapes ancestor stacking contexts
+  const updatePopoverPosition = useCallback(() => {
+    if (!anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    setPopoverStyle({
+      position: 'fixed',
+      bottom: window.innerHeight - rect.top + 18,
+      left: rect.left,
+    });
+  }, []);
 
-  const handleDragLeave = () => {
-    setIsDragOver(false);
-  };
+  // Close popover on outside click
+  useEffect(() => {
+    if (!showPopover) return;
+    const handleClick = (e) => {
+      if (
+        popoverRef.current && !popoverRef.current.contains(e.target) &&
+        anchorRef.current && !anchorRef.current.contains(e.target)
+      ) {
+        setShowPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showPopover]);
+
+  // Recalculate position when popover opens or window resizes
+  useEffect(() => {
+    if (!showPopover) return;
+    updatePopoverPosition();
+    window.addEventListener('resize', updatePopoverPosition);
+    return () => window.removeEventListener('resize', updatePopoverPosition);
+  }, [showPopover, updatePopoverPosition]);
 
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
-    if (file) setSelectedFile(file);
-  };
-
-  const handleUpload = () => {
-    if (selectedFile && !isUploading) {
-      onUpload(selectedFile, fileType);
+    if (file && !isUploading) {
+      onUpload(file, fileType);
+      setShowPopover(false);
     }
+    // Reset so the same file can be re-selected
+    e.target.value = '';
   };
 
   return (
-    <div className="space-y-3">
-      {/* File type selector */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">File Type</label>
-        <select
-          value={fileType}
-          onChange={(e) => setFileType(e.target.value)}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          {FILE_TYPES.map((ft) => (
-            <option key={ft.value} value={ft.value}>{ft.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Drop zone */}
-      <div
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onClick={() => fileInputRef.current?.click()}
-        className={`flex flex-col items-center justify-center rounded-md border-2 border-dashed p-4 cursor-pointer transition-colors ${
-          isDragOver
-            ? 'border-blue-400 bg-blue-50'
-            : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50/50'
-        }`}
-      >
-        <Upload className="h-6 w-6 text-gray-400 mb-2" />
-        {selectedFile ? (
-          <p className="text-sm text-gray-700 text-center truncate max-w-full">{selectedFile.name}</p>
-        ) : (
-          <p className="text-sm text-gray-500 text-center">Drop file here or click to browse</p>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
-      </div>
-
-      {/* Upload button */}
+    <div className="relative flex items-center gap-1.5" ref={anchorRef}>
       <button
-        onClick={handleUpload}
-        disabled={!selectedFile || isUploading}
-        className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+        type="button"
+        onClick={() => setShowPopover(!showPopover)}
+        className="rounded-lg p-2 text-vantyra-text-s hover:text-vantyra-text hover:bg-vantyra-bg-h disabled:opacity-50"
+        disabled={isUploading}
+        title="Attach file"
       >
-        {isUploading ? 'Uploading...' : 'Upload'}
+        {isUploading ? (
+          <Loader2 size={18} className="animate-spin" />
+        ) : (
+          <Paperclip size={18} />
+        )}
       </button>
 
-      {/* Status area */}
-      {lastUpload && !uploadError && (
-        <div className="flex items-center gap-1.5 text-sm text-green-600">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          <span className="truncate">✓ {lastUpload.filename} uploaded successfully</span>
-        </div>
+      {/* Upload success chip */}
+      {lastUpload && !uploadError && !isUploading && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/40 border border-emerald-800/50 px-2 py-0.5 text-xs text-vantyra-success">
+          <CheckCircle size={12} />
+          <span className="max-w-[120px] truncate">{lastUpload.filename}</span>
+        </span>
       )}
+
+      {/* Upload error chip */}
       {uploadError && (
-        <div className="flex items-center justify-between gap-2 text-sm text-red-600">
-          <span className="truncate">{uploadError}</span>
-          <button onClick={onClearError} className="shrink-0 p-0.5 hover:text-red-800">
-            <X className="h-4 w-4" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-950/40 border border-red-800/50 px-2 py-0.5 text-xs text-vantyra-error">
+          <span className="max-w-[120px] truncate">{uploadError}</span>
+          <button type="button" onClick={onClearError} className="hover:text-red-300">
+            <X size={12} />
+          </button>
+        </span>
+      )}
+
+      {/* File type + browse popover */}
+      {showPopover && (
+        <div
+          ref={popoverRef}
+          className="w-56 rounded-lg border border-vantyra-border bg-vantyra-bg-s p-3 shadow-2xl space-y-3 z-50"
+          style={popoverStyle}
+        >
+          <div>
+            <label className="block text-xs font-medium text-vantyra-text-s mb-1">File Type</label>
+            <select
+              value={fileType}
+              onChange={(e) => setFileType(e.target.value)}
+              className="w-full rounded-md border border-vantyra-border bg-vantyra-bg-h px-2 py-1.5 text-sm text-vantyra-text focus:border-vantyra-accent focus:outline-none focus:ring-1 focus:ring-vantyra-accent"
+              style={{ backgroundColor: '#2d2d50', color: '#e8e8f0' }}
+            >
+              {FILE_TYPES.map((ft) => (
+                <option key={ft.value} value={ft.value} style={{ backgroundColor: '#252540', color: '#e8e8f0' }}>{ft.label}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full rounded-xl border-2 border-cyan-300 bg-cyan-500 px-5 py-2.5 text-sm font-bold text-white shadow-[0_0_24px_rgba(0,212,255,0.5)] hover:brightness-110 transition-all"
+          >
+            Browse files…
           </button>
         </div>
       )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
     </div>
   );
-}
+});
 
 export default FileUpload;
