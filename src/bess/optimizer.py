@@ -212,7 +212,7 @@ def solve_month(
             soc[t]
             == prev_soc
             + charge[t] * config.charge_efficiency
-            - discharge[t] / config.discharge_efficiency,
+            - discharge[t] * (1.0 / config.discharge_efficiency),
             f"soc_continuity_{t}",
         )
 
@@ -391,7 +391,7 @@ def _solve_month_ftm(
             soc[t]
             == prev_soc
             + charge[t] * config.charge_efficiency
-            - discharge[t] / config.discharge_efficiency,
+            - discharge[t] * (1.0 / config.discharge_efficiency),
             f"ftm_soc_continuity_{t}",
         )
 

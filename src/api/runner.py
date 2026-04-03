@@ -111,9 +111,8 @@ def _extract_common_fields(
     loss_data = summary.get("loss_data") or {}
     capacity_factor_dc = float(loss_data.get("capacity_factor", 0.0))
 
-    capacity_factor_ac = float(loss_data.get("capacity_factor_ac", 0.0))
-    if capacity_factor_ac == 0.0 and ac_installed_mw > 0:
-        capacity_factor_ac = (annual_energy_mwh / (ac_installed_mw * 8760)) * 100
+    # Always use declared AC capacity, not PySAM's internal AC nameplate
+    capacity_factor_ac = (annual_energy_mwh / (ac_installed_mw * 8760)) * 100
 
     production = ProductionSummary(
         annual_energy_mwh=annual_energy_mwh,
@@ -260,22 +259,62 @@ def extract_bess_response(
         summary, run_name
     )
 
-    # --- Dispatch metrics (always present) ---
+    # --- Dispatch metrics ---
+    dispatch_ran = "bess_dispatch" in summary
     bd = summary.get("bess_dispatch", {})
-    dispatch = BESSDispatchSummary(
-        bess_power_mw=bd.get("bess_power_mw", 0.0),
-        bess_duration_hr=bd.get("bess_duration_hr", 0.0),
-        bess_capacity_kwh=bd.get("bess_capacity_kwh", 0.0),
-        bess_strategy=bd.get("bess_strategy", "global"),
-        annual_cycles=bd.get("annual_cycles", 0.0),
-        annual_throughput_kwh=bd.get("annual_throughput_kwh", 0.0),
-        capacity_utilization_pct=bd.get("capacity_utilization_pct", 0.0),
-        total_curtailed_kwh=bd.get("total_curtailed_kwh", 0.0),
-        estimated_annual_degradation_pct=bd.get(
-            "estimated_annual_degradation_pct", 0.0
-        ),
-        charging_source=bd.get("charging_source", "solar+grid"),
-    )
+
+    if dispatch_ran:
+        dispatch = BESSDispatchSummary(
+            bess_status="success",
+            bess_power_mw=bd.get("bess_power_mw", 0.0),
+            bess_duration_hr=bd.get("bess_duration_hr", 0.0),
+            bess_capacity_kwh=bd.get("bess_capacity_kwh", 0.0),
+            bess_strategy=bd.get("bess_strategy", "global"),
+            annual_cycles=bd.get("annual_cycles", 0.0),
+            annual_throughput_kwh=bd.get("annual_throughput_kwh", 0.0),
+            capacity_utilization_pct=bd.get("capacity_utilization_pct", 0.0),
+            total_curtailed_kwh=bd.get("total_curtailed_kwh", 0.0),
+            estimated_annual_degradation_pct=bd.get(
+                "estimated_annual_degradation_pct", 0.0
+            ),
+            charging_source=bd.get("charging_source", "unknown"),
+        )
+    else:
+        dispatch_error = summary.get("bess_dispatch_error")
+        if dispatch_error:
+            logger.warning(
+                "BESS dispatch failed for %s: %s",
+                run_name,
+                dispatch_error,
+            )
+            bess_status = "error"
+            bess_error = f"BESS dispatch failed: {dispatch_error}"
+        else:
+            logger.warning(
+                "BESS dispatch data missing from summary for %s — "
+                "returning skipped status",
+                run_name,
+            )
+            bess_status = "skipped"
+            bess_error = (
+                "BESS dispatch was requested but could not run. "
+                "Most likely cause: bill calculation was not configured "
+                "(required for BTM mode)."
+            )
+        dispatch = BESSDispatchSummary(
+            bess_status=bess_status,
+            bess_error=bess_error,
+            bess_power_mw=0.0,
+            bess_duration_hr=0.0,
+            bess_capacity_kwh=0.0,
+            bess_strategy="global",
+            annual_cycles=0.0,
+            annual_throughput_kwh=0.0,
+            capacity_utilization_pct=0.0,
+            total_curtailed_kwh=0.0,
+            estimated_annual_degradation_pct=0.0,
+            charging_source="unknown",
+        )
 
     # --- Bill comparison (BTM only) ---
     bill_comparison: BESSBillComparison | None = None
@@ -390,12 +429,14 @@ def run_buildability(
     that doesn't go through the CSV pipeline. This constructs a
     BuildabilityConfig and calls the analyzer directly.
 
+    Always generates PNG visualizations when output_dir is provided,
+    since the buildability PDF report embeds them.
+
     Args:
         site_config: SiteConfig with buildable_land_assessment=True.
-        include_maps: When True, pass output_dir to the analyzer so
-            it generates PNG map figures.
-        output_dir: Directory for output artifacts (used when
-            include_maps is True).
+        include_maps: Retained for API schema compatibility.
+        output_dir: Directory for output artifacts. When provided,
+            PNG map figures are always generated for PDF embedding.
 
     Returns:
         BuildabilityResult from the analyzer.
@@ -410,7 +451,7 @@ def run_buildability(
         radius_km=site_config.analysis_radius_km,
     )
 
-    if include_maps and output_dir is not None:
+    if output_dir is not None:
         return run_buildability_analysis(config, output_dir=output_dir)
     return run_buildability_analysis(config)
 

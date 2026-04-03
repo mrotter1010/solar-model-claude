@@ -28,6 +28,7 @@ from src.models.subhourly_correction import (
 from src.models.timeseries_adjustment import apply_correction
 from src.outputs.output_writer import OutputWriter
 from src.bess.dispatch_runner import run_bess_dispatch, run_ftm_dispatch
+from src.bess.timeseries_writer import write_bess_timeseries
 from src.bess.sizing_optimizer import (
     compute_ftm_bess_npv,
     compute_ftm_project_economics,
@@ -829,10 +830,22 @@ class SolarModelingPipeline:
                     summary["bess_dispatch"]["dispatch_profile_battery"] = avg_battery
                     summary["bess_dispatch"]["dispatch_profile_export"] = avg_export
 
+                    # Overwrite solar-only CSV with combined timeseries
+                    if ts_path is not None:
+                        write_bess_timeseries(
+                            hourly_data=result.hourly_data,
+                            production_kwh=ftm_production_kwh,
+                            load_kwh=ftm_load_kwh,
+                            dispatch_result=ftm_dispatch_result,
+                            output_path=ts_path,
+                            dispatch_mode="ftm",
+                        )
+
                 except Exception as e:
                     logger.warning(
                         f"FTM dispatch failed for {site.run_name}: {e}"
                     )
+                    summary["bess_dispatch_error"] = str(e)
 
             # ============================================================
             # BTM (behind-the-meter) BESS paths — UNCHANGED
@@ -958,10 +971,22 @@ class SolarModelingPipeline:
                     summary["bess_dispatch"]["dispatch_profile_battery"] = avg_battery
                     summary["bess_dispatch"]["dispatch_profile_export"] = avg_export
 
+                    # Overwrite solar-only CSV with combined timeseries
+                    if ts_path is not None:
+                        write_bess_timeseries(
+                            hourly_data=result.hourly_data,
+                            production_kwh=hourly_production_kwh,
+                            load_kwh=bill_calc_result.load_profile.hourly_kwh,
+                            dispatch_result=dispatch_result,
+                            output_path=ts_path,
+                            dispatch_mode="btm",
+                        )
+
                 except Exception as e:
                     logger.warning(
                         f"BESS sizing optimization failed for {site.run_name}: {e}"
                     )
+                    summary["bess_dispatch_error"] = str(e)
             # BESS single-dispatch optimization
             elif site.bess_dispatch_required and bill_calc_result is not None:
                 try:
@@ -1040,8 +1065,20 @@ class SolarModelingPipeline:
                     summary["bess_dispatch"]["dispatch_profile_battery"] = avg_battery
                     summary["bess_dispatch"]["dispatch_profile_export"] = avg_export
 
+                    # Overwrite solar-only CSV with combined timeseries
+                    if ts_path is not None:
+                        write_bess_timeseries(
+                            hourly_data=result.hourly_data,
+                            production_kwh=hourly_production_kwh,
+                            load_kwh=bill_calc_result.load_profile.hourly_kwh,
+                            dispatch_result=dispatch_result,
+                            output_path=ts_path,
+                            dispatch_mode="btm",
+                        )
+
                 except Exception as e:
                     logger.warning(f"BESS dispatch failed for {site.run_name}: {e}")
+                    summary["bess_dispatch_error"] = str(e)
             elif site.bess_dispatch_required and bill_calc_result is None:
                 logger.warning(
                     f"BESS dispatch requires bill calculation — skipping for {site.run_name}"

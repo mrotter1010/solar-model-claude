@@ -28,7 +28,7 @@ function buildStepsFromStream(completedSteps) {
 }
 
 export function useChat() {
-  const [sessionId] = useState(getOrCreateSessionId);
+  const [sessionId, setSessionId] = useState(getOrCreateSessionId);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingPlan, setPendingPlan] = useState(false);
@@ -148,5 +148,15 @@ export function useChat() {
     sendMessage(text);
   }, [sendMessage]);
 
-  return { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, injectUploadMessage };
+  const resetChat = useCallback(() => {
+    const newId = crypto.randomUUID();
+    sessionStorage.setItem('sessionId', newId);
+    setSessionId(newId);
+    setMessages([]);
+    setExecutionSteps([]);
+    setPendingPlan(false);
+    setIsLoading(false);
+  }, []);
+
+  return { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, injectUploadMessage, resetChat };
 }

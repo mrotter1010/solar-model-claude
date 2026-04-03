@@ -65,6 +65,8 @@ class BillSavingsResponse(BaseModel):
 class BESSDispatchSummary(BaseModel):
     """BESS dispatch metrics from the optimizer."""
 
+    bess_status: str = "success"
+    bess_error: str | None = None
     bess_power_mw: float
     bess_duration_hr: float
     bess_capacity_kwh: float
@@ -108,8 +110,8 @@ class FTMEconomics(BaseModel):
     annual_gross_revenue: float
     total_project_npv: float
     bess_npv: float
-    solar_npv: float
-    system_lcoe_per_kwh: float
+    solar_npv: float | None
+    system_lcoe_per_kwh: float | None
     total_installed_cost: float
 
 

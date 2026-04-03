@@ -514,13 +514,16 @@ class TestClassifyLandCover:
 class TestGetPixelAreaSqM:
     """Tests for pixel area calculation in different CRS."""
 
-    def test_projected_crs_epsg_3857(self) -> None:
-        """For projected CRS, pixel area = x_res * y_res in meters."""
+    def test_epsg_3857_at_equator(self) -> None:
+        """At equator, cos²(0°)=1, so EPSG:3857 area = x_res * y_res."""
         from unittest.mock import MagicMock
 
         transform = MagicMock()
-        transform.a = 30.0   # 30m x resolution
-        transform.e = -30.0  # 30m y resolution (negative = north-up)
+        transform.a = 30.0
+        transform.e = -30.0
+        # center_y = transform.f + transform.e * (height/2)
+        # For center at equator (y=0): transform.f = 0 - (-30)*50 = 1500
+        transform.f = 1500.0
 
         metadata = {
             "transform": transform,
@@ -530,7 +533,30 @@ class TestGetPixelAreaSqM:
 
         area = get_pixel_area_sq_m(metadata)
 
-        assert area == pytest.approx(900.0)
+        assert area == pytest.approx(900.0, rel=0.01)
+
+    def test_epsg_3857_at_60_degrees(self) -> None:
+        """At 60°N, cos²(60°)=0.25, so EPSG:3857 area = 900 * 0.25 = 225."""
+        from unittest.mock import MagicMock
+
+        # 60°N in EPSG:3857: y = R * ln(tan(π/4 + 60°/2)) ≈ 8,399,738
+        center_y_3857 = 8_399_738.0
+        transform = MagicMock()
+        transform.a = 30.0
+        transform.e = -30.0
+        # center_y = f + e * (height/2) → f = center_y - e * 50
+        transform.f = center_y_3857 - (-30.0) * 50
+
+        metadata = {
+            "transform": transform,
+            "crs": "EPSG:3857",
+            "height": 100,
+        }
+
+        area = get_pixel_area_sq_m(metadata)
+
+        # cos²(60°) = 0.25, so 900 * 0.25 = 225
+        assert area == pytest.approx(225.0, rel=0.01)
 
     def test_geographic_crs_epsg_4326(self) -> None:
         """For geographic CRS, pixel area accounts for latitude scaling."""
@@ -667,3 +693,329 @@ class TestAnalyzeSlope:
         assert result["mean_degrees"] == 0.0
         assert result["pct_below_tracker_limit"] == 100.0
         assert result["pct_below_fixed_tilt_limit"] == 100.0
+
+
+# ============================================================
+# E. Nodata Handling — classify_land_cover excludes masked pixels
+# ============================================================
+
+
+class TestClassifyLandCoverNodata:
+    """Tests for nodata (value 0) handling in land cover classification."""
+
+    def test_zero_pixels_excluded_from_total(self) -> None:
+        """Pixels with value 0 are not counted in total_pixels."""
+        # 6 valid pixels + 4 zero (nodata) pixels
+        arr = np.array([
+            [82, 82, 0, 0],
+            [82, 11, 0, 0],
+            [42, 82, 11, 42],
+        ], dtype=np.uint8)
+
+        result = classify_land_cover(arr, 900.0)
+
+        # Only 8 non-zero pixels should be counted
+        assert result["total_pixels"] == 8
+
+    def test_zero_pixels_excluded_from_acres(self) -> None:
+        """Total acreage reflects only valid (non-zero) pixels."""
+        arr = np.zeros((10, 10), dtype=np.uint8)
+        arr[:5, :5] = 82  # 25 valid pixels
+
+        result = classify_land_cover(arr, 900.0)
+
+        expected_acres = 25 * 900.0 / 4046.86
+        assert result["total_area_acres"] == pytest.approx(expected_acres, abs=0.1)
+        assert result["total_pixels"] == 25
+
+    def test_zero_pixels_excluded_from_percentages(self) -> None:
+        """Percentages are relative to valid pixels, not total array size."""
+        # 10 buildable + 10 hard exclusion + 80 nodata
+        arr = np.zeros((10, 10), dtype=np.uint8)
+        arr.flat[:10] = 82   # buildable
+        arr.flat[10:20] = 11  # hard exclusion
+
+        result = classify_land_cover(arr, 900.0)
+
+        assert result["total_pixels"] == 20
+        assert result["summary_pct"]["buildable"] == pytest.approx(50.0)
+        assert result["summary_pct"]["hard_exclusion"] == pytest.approx(50.0)
+
+    def test_all_zero_returns_empty_result(self) -> None:
+        """Array of all zeros returns zero-valued result."""
+        arr = np.zeros((5, 5), dtype=np.uint8)
+
+        result = classify_land_cover(arr, 900.0)
+
+        assert result["total_pixels"] == 0
+        assert result["total_area_acres"] == 0.0
+        assert result["class_breakdown"] == []
+
+    def test_no_zeros_works_unchanged(self) -> None:
+        """Array with no zeros produces same result as before."""
+        arr = np.full((3, 3), 82, dtype=np.uint8)
+
+        result = classify_land_cover(arr, 900.0)
+
+        assert result["total_pixels"] == 9
+        assert result["buildable_pixels"] == 9
+        expected_acres = 9 * 900.0 / 4046.86
+        assert result["total_area_acres"] == pytest.approx(expected_acres, abs=0.1)
+
+
+# ============================================================
+# F. Slope Analyzer — NaN handling for masked pixels
+# ============================================================
+
+
+class TestAnalyzeSlopeNaN:
+    """Tests for NaN (masked pixel) handling in slope analysis."""
+
+    def test_nan_pixels_excluded_from_statistics(self) -> None:
+        """NaN pixels are excluded from min/max/mean/median."""
+        slope = np.array([
+            [2.0, 5.0, np.nan],
+            [3.0, 8.0, np.nan],
+            [np.nan, np.nan, np.nan],
+        ])
+
+        result = analyze_slope(slope)
+
+        assert result["min_degrees"] == pytest.approx(2.0)
+        assert result["max_degrees"] == pytest.approx(8.0)
+        # Mean of [2, 5, 3, 8] = 4.5
+        assert result["mean_degrees"] == pytest.approx(4.5)
+
+    def test_nan_pixels_excluded_from_distribution(self) -> None:
+        """Distribution percentages are relative to valid pixels only."""
+        slope = np.full((10, 10), np.nan)
+        # 40 valid pixels: 30 at 2° and 10 at 7°
+        slope.flat[:30] = 2.0
+        slope.flat[30:40] = 7.0
+
+        result = analyze_slope(slope)
+
+        dist = result["distribution"]
+        # 30/40 = 75% in 0-5°, 10/40 = 25% in 5-10°
+        assert dist[0]["pixels"] == 30
+        assert dist[0]["percent"] == pytest.approx(75.0)
+        assert dist[1]["pixels"] == 10
+        assert dist[1]["percent"] == pytest.approx(25.0)
+
+    def test_all_nan_returns_empty_result(self) -> None:
+        """Array of all NaN returns zero-valued result."""
+        slope = np.full((5, 5), np.nan)
+
+        result = analyze_slope(slope)
+
+        assert result["min_degrees"] == 0.0
+        assert result["mean_degrees"] == 0.0
+        assert result["distribution"] == []
+
+    def test_no_nan_works_unchanged(self) -> None:
+        """Array with no NaN produces same result as before."""
+        slope = np.full((10, 10), 3.0)
+
+        result = analyze_slope(slope)
+
+        assert result["min_degrees"] == pytest.approx(3.0)
+        assert result["max_degrees"] == pytest.approx(3.0)
+        assert result["pct_below_tracker_limit"] == pytest.approx(100.0)
+
+
+# ============================================================
+# G. Polygon Masking — _create_polygon_mask
+# ============================================================
+
+
+class TestCreatePolygonMask:
+    """Tests for the raster polygon masking function."""
+
+    def test_mask_epsg_4326_circle(self) -> None:
+        """Mask clips a circular buffer polygon in EPSG:4326 raster."""
+        import math
+
+        from affine import Affine
+
+        from src.buildability.analyzer import _create_polygon_mask
+
+        # Create a 2km circular buffer at the equator
+        polygon = create_buffer(0.0, 0.0, radius_km=2.0)
+        bounds = polygon.bounds  # (west, south, east, north)
+
+        # Build a raster grid covering the polygon bbox + small buffer
+        res_deg = 30.0 / 111_000  # ~30m in degrees
+        west = bounds[0] - 2 * res_deg
+        south = bounds[1] - 2 * res_deg
+        east = bounds[2] + 2 * res_deg
+        north = bounds[3] + 2 * res_deg
+
+        width = int(round((east - west) / res_deg))
+        height = int(round((north - south) / res_deg))
+        transform = Affine(res_deg, 0.0, west, 0.0, -res_deg, north)
+
+        metadata = {
+            "transform": transform,
+            "crs": "EPSG:4326",
+            "height": height,
+            "width": width,
+        }
+
+        mask = _create_polygon_mask(polygon, metadata)
+
+        # Masked pixel count × pixel area should ≈ π × 2000²
+        pixel_area = get_pixel_area_sq_m(metadata)
+        masked_area_sq_m = int(np.sum(mask)) * pixel_area
+        expected_area_sq_m = math.pi * 2000**2
+
+        # Within 3% — discretization at 30m on a 2km circle is small
+        assert masked_area_sq_m == pytest.approx(expected_area_sq_m, rel=0.03)
+
+    def test_mask_shape_matches_raster(self) -> None:
+        """Mask output shape matches (height, width) from metadata."""
+        from affine import Affine
+
+        from src.buildability.analyzer import _create_polygon_mask
+
+        polygon = create_buffer(33.45, -112.07, radius_km=1.0)
+        bounds = polygon.bounds
+        res = 0.0003
+        west = bounds[0] - res
+        north = bounds[3] + res
+        width = 100
+        height = 80
+        transform = Affine(res, 0.0, west, 0.0, -res, north)
+
+        metadata = {
+            "transform": transform,
+            "crs": "EPSG:4326",
+            "height": height,
+            "width": width,
+        }
+
+        mask = _create_polygon_mask(polygon, metadata)
+
+        assert mask.shape == (80, 100)
+        assert mask.dtype == bool
+
+    def test_mask_excludes_corners(self) -> None:
+        """Circle mask excludes bounding-box corner pixels."""
+        from affine import Affine
+
+        from src.buildability.analyzer import _create_polygon_mask
+
+        polygon = create_buffer(0.0, 0.0, radius_km=1.0)
+        bounds = polygon.bounds
+        res = 30.0 / 111_000
+        transform = Affine(res, 0.0, bounds[0], 0.0, -res, bounds[3])
+        width = int(round((bounds[2] - bounds[0]) / res))
+        height = int(round((bounds[3] - bounds[1]) / res))
+
+        metadata = {
+            "transform": transform,
+            "crs": "EPSG:4326",
+            "height": height,
+            "width": width,
+        }
+
+        mask = _create_polygon_mask(polygon, metadata)
+
+        # Corners should be False (outside circle)
+        assert not mask[0, 0]
+        assert not mask[0, -1]
+        assert not mask[-1, 0]
+        assert not mask[-1, -1]
+        # Center should be True
+        assert mask[height // 2, width // 2]
+
+
+# ============================================================
+# H. Integration — Circular buffer acreage matches π × r²
+# ============================================================
+
+
+class TestCircularBufferAcreage:
+    """Integration test: masked + corrected area ≈ geometric expectation."""
+
+    def test_2km_buffer_at_equator(self) -> None:
+        """2km buffer at equator: total acreage within 5% of π × r²."""
+        import math
+
+        from affine import Affine
+
+        from src.buildability.analyzer import _create_polygon_mask
+
+        radius_m = 2000.0
+        polygon = create_buffer(0.0, 0.0, radius_km=2.0)
+        bounds = polygon.bounds
+        res_deg = 30.0 / 111_000
+
+        west = bounds[0] - 5 * res_deg
+        south = bounds[1] - 5 * res_deg
+        east = bounds[2] + 5 * res_deg
+        north = bounds[3] + 5 * res_deg
+
+        width = int(round((east - west) / res_deg))
+        height = int(round((north - south) / res_deg))
+        transform = Affine(res_deg, 0.0, west, 0.0, -res_deg, north)
+
+        metadata = {
+            "transform": transform,
+            "crs": "EPSG:4326",
+            "height": height,
+            "width": width,
+        }
+
+        # Mask to polygon, classify, check acreage
+        mask = _create_polygon_mask(polygon, metadata)
+        nlcd = np.full((height, width), 82, dtype=np.uint8)
+        nlcd[~mask] = 0
+
+        pixel_area = get_pixel_area_sq_m(metadata)
+        result = classify_land_cover(nlcd, pixel_area)
+
+        expected_acres = math.pi * radius_m**2 / 4046.86
+        assert result["total_area_acres"] == pytest.approx(
+            expected_acres, rel=0.05
+        )
+
+    def test_1km_buffer_at_mid_latitude(self) -> None:
+        """1km buffer at 40°N: total acreage within 5% of π × r²."""
+        import math
+
+        from affine import Affine
+
+        from src.buildability.analyzer import _create_polygon_mask
+
+        radius_m = 1000.0
+        polygon = create_buffer(40.0, -105.0, radius_km=1.0)
+        bounds = polygon.bounds
+        res_deg = 30.0 / 111_000
+
+        west = bounds[0] - 5 * res_deg
+        south = bounds[1] - 5 * res_deg
+        east = bounds[2] + 5 * res_deg
+        north = bounds[3] + 5 * res_deg
+
+        width = int(round((east - west) / res_deg))
+        height = int(round((north - south) / res_deg))
+        transform = Affine(res_deg, 0.0, west, 0.0, -res_deg, north)
+
+        metadata = {
+            "transform": transform,
+            "crs": "EPSG:4326",
+            "height": height,
+            "width": width,
+        }
+
+        mask = _create_polygon_mask(polygon, metadata)
+        nlcd = np.full((height, width), 71, dtype=np.uint8)
+        nlcd[~mask] = 0
+
+        pixel_area = get_pixel_area_sq_m(metadata)
+        result = classify_land_cover(nlcd, pixel_area)
+
+        expected_acres = math.pi * radius_m**2 / 4046.86
+        assert result["total_area_acres"] == pytest.approx(
+            expected_acres, rel=0.05
+        )

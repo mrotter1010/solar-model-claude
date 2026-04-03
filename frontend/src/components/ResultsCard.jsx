@@ -4,6 +4,7 @@ import { CONFIG } from '../config.js';
 import StepsList from './StepsList';
 
 const RUN_TOOLS = ['run_production', 'run_bill_savings', 'run_bess', 'run_buildability'];
+const TOOLS_WITH_TIMESERIES = ['run_production', 'run_bill_savings', 'run_bess'];
 
 function formatToolName(name) {
   return name
@@ -51,15 +52,17 @@ export default function ResultsCard({ content, steps, analysisApiUrl }) {
                     <Download size={12} />
                     Download PDF
                   </a>
-                  <a
-                    href={buildDownloadUrl(analysisApiUrl, step.result.run_id, 'csv')}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded bg-gray-600 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700"
-                  >
-                    <Download size={12} />
-                    Download CSV
-                  </a>
+                  {TOOLS_WITH_TIMESERIES.includes(step.tool) && (
+                    <a
+                      href={buildDownloadUrl(analysisApiUrl, step.result.run_id, 'csv')}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded bg-gray-600 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700"
+                    >
+                      <Download size={12} />
+                      Download CSV
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

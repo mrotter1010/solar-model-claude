@@ -125,7 +125,8 @@ class TestExtractProductionResponse:
 
         assert resp.production.annual_energy_mwh == 26150.0
         assert resp.production.capacity_factor_dc == 25.4
-        assert resp.production.capacity_factor_ac == 30.2
+        # Computed from declared AC capacity: 26150 / (10 * 8760) * 100
+        assert resp.production.capacity_factor_ac == pytest.approx(29.8516, rel=1e-3)
         assert resp.production.specific_yield_kwh_per_kwp == 1650.0
         assert resp.production.performance_ratio == 0.82
 

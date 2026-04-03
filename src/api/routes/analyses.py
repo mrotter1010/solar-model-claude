@@ -11,6 +11,7 @@ from src.api.adapter import (
     buildability_request_to_site_config,
     production_request_to_site_config,
 )
+from src.buildability.report_section import generate_standalone_buildability_report
 from src.api.runner import (
     extract_bess_response,
     extract_bill_savings_response,
@@ -172,6 +173,13 @@ def run_buildability_analysis_endpoint(
             include_maps=request.include_maps,
             output_dir=output_dir,
         )
+
+        # Generate buildability PDF report in the reports/ subdirectory
+        # so GET /analyses/{run_id}/report can find it
+        pdf_path = output_dir / "reports" / "buildability_report.pdf"
+        generate_standalone_buildability_report(result, pdf_path)
+        logger.info(f"Buildability PDF report saved to {pdf_path}")
+
         response = extract_buildability_response(result, site_config.run_name)
         results_path = output_dir / "results.json"
         results_path.write_text(

@@ -576,8 +576,15 @@ TOOL_DEFINITIONS: list[dict] = [
                     "bill": {
                         "type": "object",
                         "description": (
-                            "Bill calculation configuration. Requires exactly "
-                            "one rate source and exactly one load source."
+                            "Bill calculation configuration. MUST include "
+                            "exactly one rate source (either 'rate' for an "
+                            "inline rate object from build_rate, OR "
+                            "'rate_file_path', OR both 'utility_name' and "
+                            "'tariff_name') AND exactly one load source "
+                            "(either 'load_type' with "
+                            "'annual_consumption_kwh', OR "
+                            "'load_profile_path'). Missing either source "
+                            "will cause a 422 validation error."
                         ),
                         "properties": {
                             "rate": {
@@ -650,9 +657,10 @@ TOOL_DEFINITIONS: list[dict] = [
                 "optimizes battery against utility bill; (2) FTM wholesale "
                 "dispatch — optimizes against ISO LMP prices (PJM, ERCOT, "
                 "CAISO); (3) Sizing optimization — sweeps power/duration "
-                "combinations to find NPV-optimal BESS size. BTM mode requires "
-                "a rate schedule and load profile. FTM mode auto-detects ISO "
-                "from lat/lon with manual override."
+                "combinations to find NPV-optimal BESS size. "
+                "For BTM mode: site, system, bess, and bill are ALL required. "
+                "For FTM mode: site, system, bess, and ftm are required; "
+                "bill is not needed."
             ),
             "parameters": {
                 "type": "object",
@@ -680,9 +688,81 @@ TOOL_DEFINITIONS: list[dict] = [
                     "bill": {
                         "type": "object",
                         "description": (
-                            "Bill configuration. Required for BTM mode; "
-                            "optional for FTM mode."
+                            "REQUIRED for BTM dispatch (the default mode). "
+                            "Must include exactly one rate source (either "
+                            "'rate' for an inline rate object from "
+                            "build_rate, OR 'rate_file_path', OR both "
+                            "'utility_name' and 'tariff_name') AND exactly "
+                            "one load source (either 'load_type' with "
+                            "'annual_consumption_kwh', OR "
+                            "'load_profile_path'). Omitting bill in BTM "
+                            "mode will cause BESS dispatch to fail silently "
+                            "with zero results. NOT required for FTM "
+                            "dispatch — FTM uses LMP prices from the ftm "
+                            "section instead."
                         ),
+                        "properties": {
+                            "rate": {
+                                "type": "object",
+                                "description": (
+                                    "Inline rate schedule object. Use the "
+                                    "build_rate tool to construct and "
+                                    "validate, then pass the returned rate "
+                                    "object here directly."
+                                ),
+                            },
+                            "rate_file_path": {
+                                "type": "string",
+                                "description": (
+                                    "Server-side path to uploaded rate "
+                                    "JSON file"
+                                ),
+                            },
+                            "utility_name": {
+                                "type": "string",
+                                "description": (
+                                    "OpenEI utility name (must pair with "
+                                    "tariff_name)"
+                                ),
+                            },
+                            "tariff_name": {
+                                "type": "string",
+                                "description": (
+                                    "OpenEI tariff name (must pair with "
+                                    "utility_name)"
+                                ),
+                            },
+                            "load_profile_path": {
+                                "type": "string",
+                                "description": (
+                                    "Server-side path to uploaded 8760 "
+                                    "load CSV"
+                                ),
+                            },
+                            "load_type": {
+                                "type": "string",
+                                "description": (
+                                    "DOE building type (e.g., "
+                                    "'SmallOffice', 'Hospital'). Must "
+                                    "pair with annual_consumption_kwh."
+                                ),
+                            },
+                            "annual_consumption_kwh": {
+                                "type": "number",
+                                "description": (
+                                    "Annual consumption for scaling the "
+                                    "typical load profile. Required when "
+                                    "using load_type."
+                                ),
+                            },
+                            "peak_demand_kw": {
+                                "type": "number",
+                                "description": (
+                                    "Peak demand for profile scaling "
+                                    "(optional)"
+                                ),
+                            },
+                        },
                     },
                     "bess": {
                         "type": "object",
@@ -754,12 +834,14 @@ TOOL_DEFINITIONS: list[dict] = [
                                 ),
                             },
                         },
+                        "required": ["power_mw", "duration_hr"],
                     },
                     "ftm": {
                         "type": "object",
                         "description": (
-                            "Front-of-meter configuration. Include this object "
-                            "to run FTM wholesale dispatch."
+                            "REQUIRED for FTM wholesale dispatch "
+                            "(dispatch_mode='ftm'). Must include iso and "
+                            "lmp_zone. Not needed for BTM mode."
                         ),
                         "properties": {
                             "dispatch_mode": {

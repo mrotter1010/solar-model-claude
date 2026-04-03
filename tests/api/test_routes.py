@@ -179,7 +179,8 @@ class TestProductionEndpointValid:
         prod = data["production"]
         assert prod["annual_energy_mwh"] == 24_500.0
         assert prod["capacity_factor_dc"] == 25.4
-        assert prod["capacity_factor_ac"] == 30.2
+        # Computed from declared AC capacity: 24500 / (10 * 8760) * 100
+        assert prod["capacity_factor_ac"] == pytest.approx(27.9681, rel=1e-3)
         assert prod["specific_yield_kwh_per_kwp"] == 1650.0
         assert prod["performance_ratio"] == 0.82
 

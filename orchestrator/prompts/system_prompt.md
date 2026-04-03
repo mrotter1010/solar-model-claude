@@ -225,6 +225,10 @@ Monthly credit banking and annual true-up are built in. The `true_up_rate` field
 - BTM (`ftm.dispatch_mode = "btm"`): Requires a rate schedule and load profile. Revenue = bill savings (energy + demand reduction + NEM credits).
 - FTM (`ftm.dispatch_mode = "ftm"`): Revenue = LMP energy sales + arbitrage + ancillary. Rate schedule optional. Requires ISO specification (auto-detected from lat/lon with manual override). Currently supports PJM, ERCOT, and CAISO.
 
+**Bill object validation (applies to both `run_bill_savings` and `run_bess`)**: The `bill` object MUST include exactly one rate source AND exactly one load source. Rate sources (pick one): inline `rate` object (from `build_rate`), OR `rate_file_path`, OR `utility_name` + `tariff_name`. Load sources (pick one): `load_type` + `annual_consumption_kwh`, OR `load_profile_path`. Omitting either a rate source or a load source will cause a **422 validation error**.
+
+**BTM BESS workflow**: For BTM BESS analysis, call `run_bess` with site, system, bess, and `bill` — all four are required. Do NOT call `run_bill_savings` first; `run_bess` handles production + bill calculation + BESS dispatch in a single pipeline call. Use `run_bill_savings` only when you need standalone bill savings without a battery. For FTM BESS analysis, call `run_bess` with site, system, bess, and `ftm` — no bill needed.
+
 #### Solar-Only Charging (ITC Constraint)
 
 When `bess.solar_only_charging = true`, the battery can only charge from solar generation (no grid charging). This is required to qualify the BESS for the solar Investment Tax Credit (ITC) under the "80% solar charging" safe harbor. The LP enforces this as a hard constraint.
@@ -379,8 +383,9 @@ Production → Bill Savings → BESS Dispatch → BESS Sizing
 
 - **Production is always first** (except buildability-only requests). All other analyses build on production results.
 - **Bill savings requires production + rate + load**. Ensure all three are available.
-- **BESS dispatch requires production + rate + load + BESS config**. For FTM, rate/load are optional.
+- **BTM BESS dispatch requires production + rate + load + BESS config**. Call `run_bess` with site, system, bess, and bill — it runs production + bill + dispatch in one call. Do NOT call `run_bill_savings` before `run_bess`. **FTM BESS dispatch requires site, system, bess, and ftm** — bill is not needed; revenue comes from LMP prices.
 - **BESS sizing requires everything BESS dispatch needs + economics parameters**. Run with `optimize = true`.
+- **CRITICAL: When the user requests BESS (BTM or FTM), call `run_bess` directly. Do NOT call `run_production` first** — `run_bess` runs production modeling internally and returns both production metrics and BESS dispatch results in a single response. Calling `run_production` separately before `run_bess` will produce duplicate outputs (two PDFs, two CSVs). Only call `run_production` standalone when the user wants production-only analysis without a battery.
 
 ---
 
@@ -702,7 +707,7 @@ Run production + bill savings analysis.
       "losses": { "type": "object", "description": "Same as run_production losses object (all fields optional)" },
       "bill": {
         "type": "object",
-        "description": "Bill calculation configuration. Requires exactly one rate source and exactly one load source.",
+        "description": "Bill calculation configuration. MUST include exactly one rate source ('rate' OR 'rate_file_path' OR 'utility_name'+'tariff_name') AND exactly one load source ('load_type'+'annual_consumption_kwh' OR 'load_profile_path'). Missing either causes 422.",
         "properties": {
           "rate": {
             "type": "object",
@@ -732,7 +737,7 @@ Run BESS dispatch, FTM wholesale dispatch, or sizing optimization.
 ```json
 {
   "name": "run_bess",
-  "description": "Run BESS analysis. Supports three modes: (1) BTM dispatch — optimizes battery against utility bill; (2) FTM wholesale dispatch — optimizes against ISO LMP prices (PJM, ERCOT, CAISO); (3) Sizing optimization — sweeps power/duration combinations to find NPV-optimal BESS size. BTM mode requires a rate schedule and load profile. FTM mode auto-detects ISO from lat/lon with manual override.",
+  "description": "Run BESS analysis. Supports three modes: (1) BTM dispatch — optimizes battery against utility bill; (2) FTM wholesale dispatch — optimizes against ISO LMP prices (PJM, ERCOT, CAISO); (3) Sizing optimization — sweeps power/duration combinations to find NPV-optimal BESS size. For BTM mode: site, system, bess, and bill are ALL required. For FTM mode: site, system, bess, and ftm are required; bill is not needed.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -741,7 +746,17 @@ Run BESS dispatch, FTM wholesale dispatch, or sizing optimization.
       "losses": { "type": "object", "description": "Same as run_production losses object (all fields optional)" },
       "bill": {
         "type": "object",
-        "description": "Bill configuration. Required for BTM mode; optional for FTM mode."
+        "description": "REQUIRED for BTM dispatch (the default mode). Must include exactly one rate source ('rate' OR 'rate_file_path' OR 'utility_name'+'tariff_name') AND exactly one load source ('load_type'+'annual_consumption_kwh' OR 'load_profile_path'). Omitting bill in BTM mode will cause BESS dispatch to fail silently with zero results. NOT required for FTM dispatch — FTM uses LMP prices from the ftm section instead.",
+        "properties": {
+          "rate": { "type": "object", "description": "Inline rate schedule object from build_rate." },
+          "rate_file_path": { "type": "string", "description": "Server-side path to uploaded rate JSON file" },
+          "utility_name": { "type": "string", "description": "OpenEI utility name (must pair with tariff_name)" },
+          "tariff_name": { "type": "string", "description": "OpenEI tariff name (must pair with utility_name)" },
+          "load_profile_path": { "type": "string", "description": "Server-side path to uploaded 8760 load CSV" },
+          "load_type": { "type": "string", "description": "DOE building type (e.g., 'SmallOffice'). Must pair with annual_consumption_kwh." },
+          "annual_consumption_kwh": { "type": "number", "description": "Annual consumption for scaling. Required with load_type." },
+          "peak_demand_kw": { "type": "number", "description": "Peak demand for profile scaling (optional)" }
+        }
       },
       "bess": {
         "type": "object",
@@ -761,7 +776,7 @@ Run BESS dispatch, FTM wholesale dispatch, or sizing optimization.
       },
       "ftm": {
         "type": "object",
-        "description": "Front-of-meter configuration. Include this object to run FTM wholesale dispatch.",
+        "description": "REQUIRED for FTM wholesale dispatch (dispatch_mode='ftm'). Must include iso and lmp_zone. Not needed for BTM mode.",
         "properties": {
           "dispatch_mode": { "type": "string", "enum": ["btm", "ftm"], "description": "'btm' (default) or 'ftm'" },
           "iso": { "type": "string", "enum": ["pjm", "ercot", "caiso"], "description": "ISO market. Auto-detected from lat/lon if omitted." },

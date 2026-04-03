@@ -1,5 +1,6 @@
 """Tests for the buildability API endpoint, adapter, and runner."""
 
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -380,3 +381,70 @@ class TestBuildabilityEndpointError:
         assert resp.status_code == 502
         data = resp.json()
         assert "NLCD API timeout" in data["detail"]
+
+
+# ---------------------------------------------------------------------------
+# PDF report generation tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildabilityPDFReport:
+    """Buildability endpoint generates a PDF report downloadable via GET."""
+
+    @patch("src.api.routes.analyses.generate_standalone_buildability_report")
+    @patch("src.api.routes.analyses.run_buildability")
+    @patch("src.api.routes.analyses.buildability_request_to_site_config")
+    def test_generates_pdf_in_reports_dir(
+        self,
+        mock_adapter: MagicMock,
+        mock_run: MagicMock,
+        mock_pdf_gen: MagicMock,
+        client: TestClient,
+    ) -> None:
+        """Endpoint calls generate_standalone_buildability_report with correct path."""
+        mock_config = MagicMock()
+        mock_config.run_name = "TestSite_buildability_pdf_test"
+        mock_adapter.return_value = mock_config
+        result = _mock_buildability_result()
+        mock_run.return_value = result
+        mock_pdf_gen.return_value = Path(
+            "outputs/api/TestSite_buildability_pdf_test/reports/buildability_report.pdf"
+        )
+
+        resp = client.post(
+            "/analyses/buildability", json=_minimal_buildability_body()
+        )
+
+        assert resp.status_code == 200
+
+        # Verify PDF generator was called exactly once
+        mock_pdf_gen.assert_called_once()
+        call_args = mock_pdf_gen.call_args[0]
+
+        # First arg: the BuildabilityResult
+        assert call_args[0] is result
+
+        # Second arg: path under reports/ subdirectory
+        pdf_path = Path(call_args[1])
+        assert pdf_path.parent.name == "reports"
+        assert pdf_path.name == "buildability_report.pdf"
+
+        # Cleanup output dir created by the endpoint
+        output_dir = Path("outputs/api") / "TestSite_buildability_pdf_test"
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+
+    def test_report_download_returns_200(self, client: TestClient) -> None:
+        """GET /analyses/{run_id}/report returns 200 when buildability PDF exists."""
+        run_id = "test_buildability_report_download"
+        reports_dir = Path("outputs/api") / run_id / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        pdf_path = reports_dir / "buildability_report.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 dummy content")
+
+        try:
+            resp = client.get(f"/analyses/{run_id}/report")
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/pdf"
+        finally:
+            shutil.rmtree(Path("outputs/api") / run_id)

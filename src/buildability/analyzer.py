@@ -8,6 +8,12 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+import pyproj
+from rasterio.features import geometry_mask
+from shapely.geometry import Polygon
+from shapely.ops import transform as shapely_transform
+
 from src.buildability.dem_client import compute_slope, fetch_dem
 from src.buildability.exclusion_engine import classify_land_cover, get_pixel_area_sq_m
 from src.buildability.models import BuildabilityConfig, BuildabilityResult
@@ -18,6 +24,46 @@ from src.buildability.visualizations import generate_all_visualizations
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# CRS objects for polygon reprojection (PROJ strings for compatibility)
+_WGS84 = pyproj.CRS("+proj=longlat +datum=WGS84 +no_defs")
+_WEB_MERCATOR = pyproj.CRS(
+    "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 "
+    "+x_0=0 +y_0=0 +k=1 +units=m +no_defs"
+)
+_TO_3857 = pyproj.Transformer.from_crs(_WGS84, _WEB_MERCATOR, always_xy=True)
+
+
+def _create_polygon_mask(
+    polygon: Polygon,
+    metadata: dict,
+) -> np.ndarray:
+    """Create a boolean mask indicating pixels inside the analysis polygon.
+
+    Reprojects the polygon from EPSG:4326 to the raster CRS if needed,
+    then rasterizes it to produce a per-pixel boolean mask.
+
+    Args:
+        polygon: Analysis polygon in EPSG:4326.
+        metadata: Raster metadata with 'transform', 'crs', 'height', 'width'.
+
+    Returns:
+        Boolean 2D array (rows × cols): True for pixels inside the polygon.
+    """
+    crs_str = str(metadata["crs"])
+
+    if "3857" in crs_str:
+        polygon_in_crs = shapely_transform(_TO_3857.transform, polygon)
+    else:
+        polygon_in_crs = polygon
+
+    inside = geometry_mask(
+        [polygon_in_crs],
+        out_shape=(metadata["height"], metadata["width"]),
+        transform=metadata["transform"],
+        invert=True,
+    )
+    return inside
 
 
 def run_buildability_analysis(
@@ -52,17 +98,34 @@ def run_buildability_analysis(
     # 3. Fetch DEM elevation
     dem_array, dem_meta = fetch_dem(polygon)
 
-    # 4. Compute slope
+    # 4. Compute slope (from unmasked DEM for correct gradients at edges)
     slope_array = compute_slope(dem_array, dem_meta["transform"])
 
-    # 5. Compute pixel area and classify land cover
-    pixel_area = get_pixel_area_sq_m(nlcd_meta)
-    land_cover = classify_land_cover(nlcd_array, pixel_area)
+    # 4a. Mask rasters to analysis polygon — only count pixels inside
+    # the actual polygon, not the full bounding-box rectangle.
+    nlcd_mask = _create_polygon_mask(polygon, nlcd_meta)
+    nlcd_masked = nlcd_array.copy()
+    nlcd_masked[~nlcd_mask] = 0  # 0 = nodata for NLCD
 
-    # 6. Analyze slope
-    slope_stats = analyze_slope(slope_array, config.slope_thresholds)
+    dem_mask = _create_polygon_mask(polygon, dem_meta)
+    slope_masked = slope_array.copy()
+    slope_masked[~dem_mask] = np.nan
+
+    logger.info(
+        f"Polygon mask: NLCD {np.sum(nlcd_mask)}/{nlcd_array.size} pixels, "
+        f"DEM {np.sum(dem_mask)}/{slope_array.size} pixels"
+    )
+
+    # 5. Compute pixel area and classify land cover (masked)
+    pixel_area = get_pixel_area_sq_m(nlcd_meta)
+    land_cover = classify_land_cover(nlcd_masked, pixel_area)
+
+    # 6. Analyze slope (masked)
+    slope_stats = analyze_slope(slope_masked, config.slope_thresholds)
 
     # 7. Generate visualizations (if output_dir provided)
+    # Use ORIGINAL unmasked arrays so maps show full raster extent
+    # with polygon boundary overlaid.
     figure_paths: dict[str, str] = {}
     if output_dir is not None:
         fig_dir = Path(output_dir) / "figures"

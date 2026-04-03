@@ -34,7 +34,7 @@ pyproj>=3.6,<4
 reportlab>=4.0,<5
 
 # Optimization (BESS sizing)
-pulp>=2.7,<3
+pulp>=2.7
 
 # HTTP clients
 requests>=2.31,<3

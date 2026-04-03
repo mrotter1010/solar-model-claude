@@ -66,19 +66,47 @@ def classify_land_cover(
 ) -> dict:
     """Classify NLCD land cover pixels into buildability categories.
 
+    Pixels with value 0 are treated as nodata (outside analysis polygon)
+    and excluded from all counts and statistics.
+
     Args:
         nlcd_array: 2D uint8 array of NLCD land cover class codes.
+            Pixels outside the analysis polygon should be set to 0.
         pixel_area_sq_m: Area of each pixel in square meters.
 
     Returns:
         Dict with total/buildable/soft/hard/unclassified pixel counts
         and acres, per-class breakdown, and summary percentages.
     """
-    total_pixels = int(nlcd_array.size)
+    # Exclude nodata pixels (0 = outside analysis polygon)
+    valid_pixels = nlcd_array[nlcd_array != 0]
+    total_pixels = int(valid_pixels.size)
+
+    if total_pixels == 0:
+        return {
+            "total_pixels": 0,
+            "total_area_acres": 0.0,
+            "buildable_pixels": 0,
+            "buildable_acres": 0.0,
+            "soft_exclusion_pixels": 0,
+            "soft_exclusion_acres": 0.0,
+            "hard_exclusion_pixels": 0,
+            "hard_exclusion_acres": 0.0,
+            "unclassified_pixels": 0,
+            "unclassified_acres": 0.0,
+            "class_breakdown": [],
+            "summary_pct": {
+                "buildable": 0.0,
+                "soft_exclusion": 0.0,
+                "hard_exclusion": 0.0,
+                "unclassified": 0.0,
+            },
+        }
+
     total_acres = total_pixels * pixel_area_sq_m / _SQ_M_PER_ACRE
 
-    # Count pixels per category
-    unique, counts = np.unique(nlcd_array, return_counts=True)
+    # Count pixels per category (nodata already excluded)
+    unique, counts = np.unique(valid_pixels, return_counts=True)
 
     buildable_pixels = 0
     soft_exclusion_pixels = 0
@@ -146,8 +174,12 @@ def classify_land_cover(
 def get_pixel_area_sq_m(metadata: dict) -> float:
     """Compute the area of a single pixel in square meters.
 
-    Handles both geographic (EPSG:4326) and projected (EPSG:3857)
-    coordinate systems.
+    Handles geographic (EPSG:4326), Web Mercator (EPSG:3857), and
+    other projected coordinate systems.
+
+    EPSG:3857 (Web Mercator) requires special handling: pixel dimensions
+    are in projection meters which inflate with latitude. Real ground
+    area = nominal_area * cos²(latitude).
 
     Args:
         metadata: Raster metadata dict with 'transform' and 'crs' keys.
@@ -160,7 +192,8 @@ def get_pixel_area_sq_m(metadata: dict) -> float:
     x_res = abs(transform.a)
     y_res = abs(transform.e)
 
-    if "4326" in str(crs) or "CRS:84" in str(crs):
+    crs_str = str(crs)
+    if "4326" in crs_str or "CRS:84" in crs_str:
         # Geographic CRS: pixel size is in degrees
         n_rows = metadata["height"]
         center_lat = transform.f + transform.e * (n_rows / 2)
@@ -168,8 +201,19 @@ def get_pixel_area_sq_m(metadata: dict) -> float:
         x_m = x_res * _METERS_PER_DEG_LAT * cos_lat
         y_m = y_res * _METERS_PER_DEG_LAT
         area = x_m * y_m
+    elif "3857" in crs_str:
+        # Web Mercator: pixel size is in EPSG:3857 meters, NOT real meters.
+        # Real ground area = nominal_area * cos²(center_latitude).
+        _R = 6_378_137.0  # WGS84 semi-major axis (meters)
+        n_rows = metadata["height"]
+        center_y = transform.f + transform.e * (n_rows / 2)
+        center_lat = math.degrees(
+            2.0 * math.atan(math.exp(center_y / _R)) - math.pi / 2.0
+        )
+        cos_lat = math.cos(math.radians(center_lat))
+        area = x_res * y_res * cos_lat * cos_lat
     else:
-        # Projected CRS: pixel size is already in meters
+        # Projected CRS (UTM, State Plane, etc.): pixel size already in meters
         area = x_res * y_res
 
     logger.debug(f"Pixel area: {area:.2f} sq m (CRS={crs})")
