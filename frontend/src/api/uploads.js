@@ -3,12 +3,11 @@ import { CONFIG } from '../config.js';
 const BASE = CONFIG.analysisApiUrl;
 
 /**
- * POST /uploads/{fileType} — Upload a file to the analysis API
+ * POST /uploads — Upload a file with automatic type detection
  * @param {File} file — File object from input
- * @param {'rate'|'kmz'|'load-profile'} fileType
- * @returns {Promise<{file_type: string, filename: string, path: string, size_bytes: number}>}
+ * @returns {Promise<{file_type: string, filename: string, path: string, size_bytes: number, detected: boolean, confidence: string|null, message: string|null, extracted_text: string|null}>}
  */
-export async function uploadFile(file, fileType) {
+export async function uploadFile(file) {
   const formData = new FormData();
   formData.append('file', file);
 
@@ -17,7 +16,7 @@ export async function uploadFile(file, fileType) {
     headers['X-API-Key'] = CONFIG.analysisApiKey;
   }
 
-  const res = await fetch(`${BASE}/uploads/${fileType}`, {
+  const res = await fetch(`${BASE}/uploads`, {
     method: 'POST',
     headers,
     body: formData,

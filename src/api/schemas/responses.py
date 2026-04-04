@@ -230,6 +230,10 @@ class FileUploadResponse(BaseModel):
     filename: str
     path: str
     size_bytes: int
+    detected: bool = False
+    confidence: str | None = None
+    message: str | None = None
+    extracted_text: str | None = None
 
 
 class ErrorResponse(BaseModel):

@@ -10,6 +10,8 @@ from pydantic import ValidationError
 
 from src.api.schemas.responses import FileUploadResponse
 from src.rates.models import RateSchedule
+from src.uploads.detector import detect_file_type
+from src.uploads.text_extractor import extract_text
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -29,6 +31,13 @@ _SUBDIRS = {
     "load-profile": "load-profiles",
 }
 
+# Map detected_type → (file_type for response, subdirectory)
+_DETECTED_TYPE_MAP = {
+    "kmz": ("kmz", "kmz"),
+    "load_profile": ("load-profile", "load-profiles"),
+    "rate_schedule": ("rate", "rates"),
+}
+
 
 class FileType(str, Enum):
     """Allowed file type path parameters."""
@@ -36,6 +45,88 @@ class FileType(str, Enum):
     rate = "rate"
     kmz = "kmz"
     load_profile = "load-profile"
+
+
+@router.post("", response_model=FileUploadResponse)
+async def upload_file_auto(file: UploadFile) -> FileUploadResponse:
+    """Upload any file with automatic type detection.
+
+    The backend inspects the filename extension and file content to classify
+    the upload as KMZ, load profile, rate schedule, or unknown.  Known types
+    are validated and stored in their standard subdirectory.  Unknown files
+    are stored in ``uploads/general/`` and have their text extracted (when
+    possible) for orchestrator context injection.
+
+    Args:
+        file: The uploaded file.
+
+    Returns:
+        FileUploadResponse with detection metadata and optional extracted text.
+    """
+    content = await file.read()
+
+    if len(content) == 0:
+        raise HTTPException(status_code=422, detail="Empty file upload is not allowed.")
+
+    filename = file.filename or "unnamed"
+
+    result = detect_file_type(filename, content)
+
+    # --- Known type with high confidence → validate and save ---
+    if result.detected_type in _DETECTED_TYPE_MAP and result.confidence == "high":
+        file_type_str, subdir = _DETECTED_TYPE_MAP[result.detected_type]
+
+        # Run existing validation for the detected type
+        if result.detected_type == "rate_schedule":
+            _validate_rate(content)
+        elif result.detected_type == "kmz":
+            _validate_kmz(filename, len(content))
+        elif result.detected_type == "load_profile":
+            _validate_load_profile(filename, len(content))
+
+        dest_dir = Path(UPLOAD_DIR) / subdir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / filename
+        dest_path.write_bytes(content)
+
+        logger.info(
+            f"Auto-detected {result.detected_type} file: "
+            f"{dest_path} ({len(content)} bytes)"
+        )
+
+        return FileUploadResponse(
+            file_type=file_type_str,
+            filename=filename,
+            path=str(dest_path),
+            size_bytes=len(content),
+            detected=True,
+            confidence=result.confidence,
+            message=result.message,
+        )
+
+    # --- Unknown type → save to general/, extract text ---
+    dest_dir = Path(UPLOAD_DIR) / "general"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / filename
+    dest_path.write_bytes(content)
+
+    extracted = extract_text(filename, content)
+
+    logger.info(
+        f"Uploaded unknown file: {dest_path} ({len(content)} bytes), "
+        f"text extracted: {extracted is not None}"
+    )
+
+    return FileUploadResponse(
+        file_type="unknown",
+        filename=filename,
+        path=str(dest_path),
+        size_bytes=len(content),
+        detected=True,
+        confidence=result.confidence,
+        message=result.message,
+        extracted_text=extracted,
+    )
 
 
 @router.post("/{file_type}", response_model=FileUploadResponse)
@@ -101,11 +192,11 @@ def _validate_rate(content: bytes) -> None:
 
 
 def _validate_kmz(filename: str, size: int) -> None:
-    """Validate KMZ file: must have .kmz extension and be under 50MB."""
-    if not filename.lower().endswith(".kmz"):
+    """Validate KMZ/KML file: must have .kmz or .kml extension and be under 50MB."""
+    if not (filename.lower().endswith(".kmz") or filename.lower().endswith(".kml")):
         raise HTTPException(
             status_code=422,
-            detail=f"KMZ file must have .kmz extension, got '{filename}'.",
+            detail=f"Boundary file must have .kmz or .kml extension, got '{filename}'.",
         )
     if size > _MAX_KMZ_BYTES:
         raise HTTPException(

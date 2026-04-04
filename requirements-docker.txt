@@ -33,6 +33,9 @@ pyproj>=3.6,<4
 # PDF reporting
 reportlab>=4.0,<5
 
+# PDF text extraction
+pdfplumber>=0.10,<1
+
 # Optimization (BESS sizing)
 pulp>=2.7
 

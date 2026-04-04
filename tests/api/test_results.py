@@ -42,6 +42,13 @@ def fake_outputs(tmp_path: Path) -> Path:
         "timestamp,energy_kwh\n2024-01-01 00:00,100\n", encoding="utf-8"
     )
 
+    # Fake chart PNG
+    figures_dir = run_dir / "figures"
+    figures_dir.mkdir()
+    # Minimal valid PNG: 8-byte signature
+    png_sig = b"\x89PNG\r\n\x1a\n"
+    (figures_dir / "monthly_production.png").write_bytes(png_sig)
+
     return tmp_path
 
 
@@ -112,3 +119,35 @@ class TestGetTimeseries:
 
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Timeseries not found"
+
+
+class TestGetImage:
+    """GET /analyses/{run_id}/images/{image_name}."""
+
+    def test_returns_png(self, client: TestClient) -> None:
+        """Existing image → 200 with PNG content type."""
+        resp = client.get(f"/analyses/{RUN_ID}/images/monthly_production.png")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content.startswith(b"\x89PNG")
+
+    def test_missing_run_id(self, client: TestClient) -> None:
+        """Nonexistent run → 404."""
+        resp = client.get("/analyses/nonexistent/images/monthly_production.png")
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Image not found"
+
+    def test_missing_image(self, client: TestClient) -> None:
+        """Existing run but missing image file → 404."""
+        resp = client.get(f"/analyses/{RUN_ID}/images/no_such_chart.png")
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Image not found"
+
+    def test_non_png_rejected(self, client: TestClient) -> None:
+        """Non-.png filename → 422 validation error."""
+        resp = client.get(f"/analyses/{RUN_ID}/images/malicious.exe")
+
+        assert resp.status_code == 422

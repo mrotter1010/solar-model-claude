@@ -140,21 +140,23 @@ class TestGenerateReport:
 
         assert result is None
 
-    def test_cleans_up_temp_charts(self, tmp_path: Path) -> None:
-        """Temp chart PNGs are removed after PDF is built."""
-        import tempfile
+    def test_persists_chart_pngs_in_figures_dir(self, tmp_path: Path) -> None:
+        """Chart PNGs are saved to a sibling figures/ directory."""
+        # output_dir is treated as reports dir; figures go to parent/figures
+        reports_dir = tmp_path / "reports"
+        reports_dir.mkdir()
 
         result = generate_report(
             site_config=_make_site_config(),
             loss_data=_make_loss_data(),
-            output_dir=tmp_path,
+            output_dir=reports_dir,
         )
 
         assert result is not None
-        # Temp dirs starting with solar_report_ should be cleaned up
-        # Verify no lingering PNG files in tmp_path (only the PDF)
-        png_files = list(tmp_path.glob("*.png"))
-        assert len(png_files) == 0
+        figures_dir = tmp_path / "figures"
+        assert figures_dir.exists()
+        png_files = list(figures_dir.glob("*.png"))
+        assert len(png_files) >= 2  # monthly_production.png + loss_waterfall.png
 
 
 class TestSampleReportArtifact:

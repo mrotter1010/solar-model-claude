@@ -1,5 +1,7 @@
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
 import { Download } from 'lucide-react';
+import { markdownComponents } from './MarkdownRenderers';
 import { CONFIG } from '../config.js';
 import StepsList from './StepsList';
 
@@ -33,7 +35,7 @@ export default function ResultsCard({ content, steps, analysisApiUrl }) {
           Analysis Results
         </p>
         <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-pre:bg-[#1a1a2e] prose-pre:text-gray-100 prose-a:text-vantyra-accent prose-headings:text-vantyra-text prose-strong:text-vantyra-text prose-code:text-vantyra-accent">
-          <ReactMarkdown>{content}</ReactMarkdown>
+          <ReactMarkdown components={markdownComponents} rehypePlugins={[rehypeRaw]}>{content}</ReactMarkdown>
         </div>
         {downloadableSteps.length > 0 && (
           <div className="mt-3 border-t border-vantyra-border pt-3 space-y-2">

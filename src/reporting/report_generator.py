@@ -6,7 +6,6 @@ to produce a complete solar production analysis report.
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -79,23 +78,23 @@ def generate_report(
         narrative = generate_narrative(site_summary, loss_data, waterfall_data)
         logger.info("Generated narrative text")
 
-        # 5. Generate charts to temp files
-        temp_dir = tempfile.mkdtemp(prefix="solar_report_")
-        temp_path = Path(temp_dir)
+        # 5. Generate charts to persistent figures directory
+        figures_dir = Path(output_dir).parent / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
 
-        monthly_chart_path = temp_path / "monthly_production.png"
+        monthly_chart_path = figures_dir / "monthly_production.png"
         monthly_result = generate_monthly_production_chart(monthly_data, monthly_chart_path)
         if monthly_result is None:
             logger.error("Failed to generate monthly production chart")
             return None
 
-        waterfall_chart_path = temp_path / "loss_waterfall.png"
+        waterfall_chart_path = figures_dir / "loss_waterfall.png"
         waterfall_result = generate_loss_waterfall_chart(waterfall_data, waterfall_chart_path)
         if waterfall_result is None:
             logger.error("Failed to generate loss waterfall chart")
             return None
 
-        logger.info(f"Generated chart PNGs in {temp_dir}")
+        logger.info(f"Generated chart PNGs in {figures_dir}")
 
         # 6. Build PDF
         output_dir = Path(output_dir)
@@ -114,7 +113,7 @@ def generate_report(
             bess_dispatch = summary["bess_dispatch"]
             hm = bess_dispatch.get("heatmap_data")
             if hm is not None:
-                bess_heatmap_path = temp_path / "bess_heatmap.png"
+                bess_heatmap_path = figures_dir / "bess_heatmap.png"
                 generate_heatmap_chart(hm, bess_heatmap_path)
 
             dp_load = bess_dispatch.get("dispatch_profile_load")
@@ -123,7 +122,7 @@ def generate_report(
             dp_month = bess_dispatch.get("dispatch_profile_month", "July")
             dp_export = bess_dispatch.get("dispatch_profile_export")
             if dp_load and dp_solar and dp_battery:
-                bess_dispatch_chart_path = temp_path / "bess_dispatch_profile.png"
+                bess_dispatch_chart_path = figures_dir / "bess_dispatch_profile.png"
                 generate_dispatch_profile_chart(
                     dp_load, dp_solar, dp_battery, dp_month,
                     bess_dispatch_chart_path,
@@ -159,12 +158,6 @@ def generate_report(
         if result is None:
             logger.error("Failed to build PDF report")
             return None
-
-        # 7. Clean up temp chart PNGs
-        for chart_file in temp_path.glob("*.png"):
-            chart_file.unlink()
-        temp_path.rmdir()
-        logger.info("Cleaned up temp chart files")
 
         logger.info(f"Report generated: {pdf_path}")
         return pdf_path

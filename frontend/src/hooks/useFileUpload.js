@@ -6,12 +6,12 @@ export function useFileUpload() {
   const [uploadError, setUploadError] = useState(null);
   const [lastUpload, setLastUpload] = useState(null);
 
-  const uploadFile = useCallback(async (file, fileType) => {
+  const uploadFile = useCallback(async (file) => {
     setIsUploading(true);
     setUploadError(null);
 
     try {
-      const response = await apiUploadFile(file, fileType);
+      const response = await apiUploadFile(file);
       setLastUpload(response);
     } catch (err) {
       setUploadError(err.message);
@@ -24,5 +24,9 @@ export function useFileUpload() {
     setUploadError(null);
   }, []);
 
-  return { isUploading, uploadError, lastUpload, uploadFile, clearUploadError };
+  const clearLastUpload = useCallback(() => {
+    setLastUpload(null);
+  }, []);
+
+  return { isUploading, uploadError, lastUpload, uploadFile, clearUploadError, clearLastUpload };
 }

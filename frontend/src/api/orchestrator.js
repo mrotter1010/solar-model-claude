@@ -6,13 +6,16 @@ const BASE = CONFIG.orchestratorUrl;
  * POST /chat — Send a message to the orchestrator
  * @param {string} sessionId
  * @param {string} message
+ * @param {string|null} [fileContext] — file metadata/contents sent as separate context
  * @returns {Promise<{session_id: string, response_type: string, content: string, status: string}>}
  */
-export async function sendMessage(sessionId, message) {
+export async function sendMessage(sessionId, message, fileContext = null) {
+  const payload = { session_id: sessionId, message };
+  if (fileContext) payload.file_context = fileContext;
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, message }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Chat failed: ${res.status} ${res.statusText}`);
   return res.json();

@@ -115,15 +115,27 @@ class TestKmzUpload:
         assert data["file_type"] == "kmz"
         assert data["filename"] == "site.kmz"
 
+    def test_valid_kml_returns_200(self, client: TestClient) -> None:
+        """File with .kml extension uploads successfully."""
+        resp = client.post(
+            "/uploads/kmz",
+            files={"file": ("site.kml", BytesIO(b"<kml>fake</kml>"), "application/xml")},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["file_type"] == "kmz"
+        assert data["filename"] == "site.kml"
+
     def test_wrong_extension_returns_422(self, client: TestClient) -> None:
-        """File without .kmz extension returns 422."""
+        """File without .kmz or .kml extension returns 422."""
         resp = client.post(
             "/uploads/kmz",
             files={"file": ("site.zip", BytesIO(b"fake content"), "application/octet-stream")},
         )
 
         assert resp.status_code == 422
-        assert ".kmz extension" in resp.json()["detail"]
+        assert ".kmz or .kml extension" in resp.json()["detail"]
 
     def test_kmz_file_exists_on_disk(
         self, client: TestClient, tmp_path: Path

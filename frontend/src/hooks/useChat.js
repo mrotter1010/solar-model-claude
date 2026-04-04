@@ -34,11 +34,12 @@ export function useChat() {
   const [pendingPlan, setPendingPlan] = useState(false);
   const [executionSteps, setExecutionSteps] = useState([]);
 
-  const sendMessage = useCallback(async (text) => {
+  const sendMessage = useCallback(async (text, fileContext = null, fileAttachment = null) => {
     const userMsg = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
+      fileAttachment,
       responseType: null,
       steps: null,
       timestamp: Date.now(),
@@ -47,7 +48,7 @@ export function useChat() {
     setIsLoading(true);
 
     try {
-      const res = await apiSendMessage(sessionId, text);
+      const res = await apiSendMessage(sessionId, text, fileContext);
       const assistantMsg = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -143,11 +144,6 @@ export function useChat() {
     }
   }, [sessionId]);
 
-  const injectUploadMessage = useCallback((filename, serverPath, fileType) => {
-    const text = `[System: File uploaded — ${fileType} file '${filename}' available at server path: ${serverPath}]`;
-    sendMessage(text);
-  }, [sendMessage]);
-
   const resetChat = useCallback(() => {
     const newId = crypto.randomUUID();
     sessionStorage.setItem('sessionId', newId);
@@ -158,5 +154,5 @@ export function useChat() {
     setIsLoading(false);
   }, []);
 
-  return { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, injectUploadMessage, resetChat };
+  return { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, resetChat };
 }

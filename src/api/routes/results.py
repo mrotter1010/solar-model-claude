@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path as PathParam
 from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/analyses", tags=["results"])
@@ -77,3 +77,27 @@ def get_timeseries(run_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="Timeseries not found")
 
     return FileResponse(csvs[0], media_type="text/csv")
+
+
+@router.get("/{run_id}/images/{image_name}")
+def get_image(
+    run_id: str,
+    image_name: str = PathParam(..., pattern=r"^.+\.png$"),
+) -> FileResponse:
+    """Return a chart image PNG for a completed analysis run.
+
+    Args:
+        run_id: The run identifier.
+        image_name: Filename of the image (must end with .png).
+
+    Returns:
+        FileResponse streaming the PNG file.
+
+    Raises:
+        HTTPException: 404 if the run directory or image is not found.
+    """
+    image_path = OUTPUT_BASE_DIR / run_id / "figures" / image_name
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(image_path, media_type="image/png")

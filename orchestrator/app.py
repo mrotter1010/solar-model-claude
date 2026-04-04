@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
 
     session_id: str
     message: str
+    file_context: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -132,9 +133,19 @@ async def chat(body: ChatRequest, request: Request) -> ChatResponse:
 
     try:
         cm.get_or_create_session(body.session_id)
+
+        if body.file_context:
+            content = (
+                f"{body.file_context}\n\n{body.message}"
+                if body.message
+                else body.file_context
+            )
+        else:
+            content = body.message
+
         cm.add_message(
             body.session_id,
-            ChatMessage(role="user", content=body.message),
+            ChatMessage(role="user", content=content),
         )
 
         messages = cm.get_openai_messages(body.session_id)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useChat } from './hooks/useChat';
 import { useFileUpload } from './hooks/useFileUpload';
 import Header from './components/Header';
@@ -7,18 +7,33 @@ import MessageInput from './components/MessageInput';
 import ErrorBanner from './components/ErrorBanner';
 import FileUpload from './components/FileUpload';
 
+function buildFileContext(upload) {
+  if (upload.file_type !== 'unknown') {
+    return `[System: File uploaded — ${upload.file_type} file '${upload.filename}' available at server path: ${upload.path}]`;
+  }
+  if (upload.extracted_text) {
+    return `[System: File uploaded — '${upload.filename}' available at server path: ${upload.path}. File contents:\n${upload.extracted_text}]`;
+  }
+  return `[System: File uploaded — '${upload.filename}' available at server path: ${upload.path}. Binary file — contents not readable.]`;
+}
+
 function App() {
-  const { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, injectUploadMessage, resetChat } = useChat();
-  const { isUploading, uploadError, lastUpload, uploadFile, clearUploadError } = useFileUpload();
+  const { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, resetChat } = useChat();
+  const { isUploading, uploadError, lastUpload, uploadFile, clearUploadError, clearLastUpload } = useFileUpload();
   const [globalError, setGlobalError] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileUploadRef = useRef(null);
 
-  useEffect(() => {
+  const handleSend = useCallback((text) => {
     if (lastUpload) {
-      injectUploadMessage(lastUpload.filename, lastUpload.path, lastUpload.file_type);
+      const fileContext = buildFileContext(lastUpload);
+      const fileAttachment = { filename: lastUpload.filename, file_type: lastUpload.file_type };
+      clearLastUpload();
+      sendMessage(text, fileContext, fileAttachment);
+    } else {
+      sendMessage(text);
     }
-  }, [lastUpload, injectUploadMessage]);
+  }, [lastUpload, clearLastUpload, sendMessage]);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -54,8 +69,10 @@ function App() {
       )}
       <ChatPanel messages={messages} isLoading={isLoading} pendingPlan={pendingPlan} executionSteps={executionSteps} onApprove={approvePlan} />
       <MessageInput
-        onSend={sendMessage}
+        onSend={handleSend}
         disabled={isLoading}
+        pendingUpload={lastUpload}
+        onClearPendingUpload={clearLastUpload}
         leftSlot={
           <FileUpload
             ref={fileUploadRef}
