@@ -7,7 +7,7 @@ set -e
 # ---------------------------------------------------------------------------
 
 VPS_HOST="root@87.99.136.159"
-BRANCH="feature/m23-beta-deployment"
+BRANCH="main"
 REPO_DIR="/root/solar-model-claude"
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 
