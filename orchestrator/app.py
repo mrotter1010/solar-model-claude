@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
@@ -23,6 +24,7 @@ from orchestrator.planning.events import (
 from orchestrator.planning.executor import Executor
 from orchestrator.planning.models import ResponseType
 from orchestrator.planning.planner import Planner
+from orchestrator.middleware import InviteCodeMiddleware
 from orchestrator.tools.api_client import AnalysisAPIClient
 
 logger = logging.getLogger(__name__)
@@ -105,9 +107,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Solar Orchestrator", version="0.1.0", lifespan=lifespan)
 
+_cors_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ORIGINS", "http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(InviteCodeMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

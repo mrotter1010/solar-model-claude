@@ -1,4 +1,5 @@
 import { CONFIG } from '../config.js';
+import { inviteHeaders } from '../utils/inviteCode.js';
 
 const BASE = CONFIG.orchestratorUrl;
 
@@ -45,7 +46,7 @@ export function streamApproval(sessionId, onStepUpdate) {
   const promise = (async () => {
     const res = await fetch(`${BASE}/chat/approve/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...inviteHeaders() },
       body: JSON.stringify({ session_id: sessionId }),
       signal: controller.signal,
     });

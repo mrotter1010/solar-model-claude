@@ -457,7 +457,7 @@ Always use markdown image syntax: `![Description](url)`. Never use raw HTML `<im
 When presenting results, embed relevant chart images using markdown image syntax. Use this exact URL format:
 
 ```
-![Description](http://localhost:8000/analyses/{run_id}/images/{filename})
+![Description](/api/analyses/{run_id}/images/{filename})
 ```
 
 The `run_id` is returned in every tool call response. Use the exact `run_id` from the response — do not construct or guess it.
@@ -498,12 +498,12 @@ Always include the production charts after the relevant sections:
 MONTHLY PRODUCTION (MWh)
 Jan: 642 | Feb: 710 | Mar: 912 | ...
 
-![Monthly Production Profile](http://localhost:8000/analyses/{run_id}/images/monthly_production.png)
+![Monthly Production Profile](/api/analyses/{run_id}/images/monthly_production.png)
 
 LOSS BREAKDOWN
 Soiling: −2.0% | Shading: −1.5% | ...
 
-![Loss Waterfall](http://localhost:8000/analyses/{run_id}/images/loss_waterfall.png)
+![Loss Waterfall](/api/analyses/{run_id}/images/loss_waterfall.png)
 ```
 
 ### Bill Savings Results
@@ -526,9 +526,9 @@ Soiling: −2.0% | Shading: −1.5% | ...
 Include the BESS charts after the dispatch summary:
 
 ```
-![BESS Dispatch Heatmap](http://localhost:8000/analyses/{run_id}/images/bess_heatmap.png)
+![BESS Dispatch Heatmap](/api/analyses/{run_id}/images/bess_heatmap.png)
 
-![BESS Dispatch Profile](http://localhost:8000/analyses/{run_id}/images/bess_dispatch_profile.png)
+![BESS Dispatch Profile](/api/analyses/{run_id}/images/bess_dispatch_profile.png)
 ```
 
 #### FTM BESS
@@ -554,11 +554,11 @@ Include the BESS charts after the dispatch summary:
 When maps were generated (include_maps was true), include them after the relevant sections:
 
 ```
-![Land Cover Map](http://localhost:8000/analyses/{run_id}/images/land_cover_map.png)
+![Land Cover Map](/api/analyses/{run_id}/images/land_cover_map.png)
 
-![Buildability Map](http://localhost:8000/analyses/{run_id}/images/buildability_map.png)
+![Buildability Map](/api/analyses/{run_id}/images/buildability_map.png)
 
-![Slope Map](http://localhost:8000/analyses/{run_id}/images/slope_map.png)
+![Slope Map](/api/analyses/{run_id}/images/slope_map.png)
 ```
 
 ### When to Recommend Further Analysis

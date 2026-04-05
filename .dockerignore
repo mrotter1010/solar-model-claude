@@ -24,6 +24,12 @@ env/
 # OS
 .DS_Store
 
+# Node
+node_modules/
+
+# Tests
+tests/
+
 # Research data (not needed in production image)
 research/
 
@@ -34,6 +40,10 @@ test_results/
 # Docker files (no need to copy themselves)
 Dockerfile
 docker-compose.yml
+docker-compose.prod.yml
 .dockerignore
+
+# Environment files
 .env
-.env.example
+.env.*
+!.env.production.example

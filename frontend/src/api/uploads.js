@@ -1,4 +1,5 @@
 import { CONFIG } from '../config.js';
+import { inviteHeaders } from '../utils/inviteCode.js';
 
 const BASE = CONFIG.analysisApiUrl;
 
@@ -11,7 +12,7 @@ export async function uploadFile(file) {
   const formData = new FormData();
   formData.append('file', file);
 
-  const headers = {};
+  const headers = { ...inviteHeaders() };
   if (CONFIG.analysisApiKey) {
     headers['X-API-Key'] = CONFIG.analysisApiKey;
   }

@@ -40,6 +40,7 @@ data/
 !src/outputs/
 uploads/
 .env
+.env.production
 *.log
 solar_orchestrator_system_prompt.md
 

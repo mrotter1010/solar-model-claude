@@ -1,4 +1,5 @@
 import { CONFIG } from '../config.js';
+import { inviteHeaders } from '../utils/inviteCode.js';
 
 const BASE = CONFIG.orchestratorUrl;
 
@@ -14,7 +15,7 @@ export async function sendMessage(sessionId, message, fileContext = null) {
   if (fileContext) payload.file_context = fileContext;
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...inviteHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Chat failed: ${res.status} ${res.statusText}`);
@@ -29,7 +30,7 @@ export async function sendMessage(sessionId, message, fileContext = null) {
 export async function approvePlan(sessionId) {
   const res = await fetch(`${BASE}/chat/approve`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...inviteHeaders() },
     body: JSON.stringify({ session_id: sessionId }),
   });
   if (!res.ok) throw new Error(`Approve failed: ${res.status} ${res.statusText}`);
@@ -42,7 +43,9 @@ export async function approvePlan(sessionId) {
  * @returns {Promise<{session_id: string, status: string, message_count: number, run_ids: string[], created_at: string, last_activity: string}>}
  */
 export async function getSession(sessionId) {
-  const res = await fetch(`${BASE}/sessions/${sessionId}`);
+  const res = await fetch(`${BASE}/sessions/${sessionId}`, {
+    headers: inviteHeaders(),
+  });
   if (!res.ok) throw new Error(`Session fetch failed: ${res.status} ${res.statusText}`);
   return res.json();
 }
@@ -52,7 +55,9 @@ export async function getSession(sessionId) {
  * @returns {Promise<object>}
  */
 export async function checkHealth() {
-  const res = await fetch(`${BASE}/health`);
+  const res = await fetch(`${BASE}/health`, {
+    headers: inviteHeaders(),
+  });
   if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
   return res.json();
 }

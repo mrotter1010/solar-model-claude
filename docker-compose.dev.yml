@@ -1,0 +1,15 @@
+# Local development overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  api:
+    ports:
+      - "8000:8000"
+
+  orchestrator:
+    ports:
+      - "8001:8001"
+
+  timescaledb:
+    ports:
+      - "5432:5432"

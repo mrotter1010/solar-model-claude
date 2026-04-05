@@ -6,6 +6,8 @@ import ChatPanel from './components/ChatPanel';
 import MessageInput from './components/MessageInput';
 import ErrorBanner from './components/ErrorBanner';
 import FileUpload from './components/FileUpload';
+import AccessGate from './components/AccessGate';
+import { getInviteCode, setInviteCode } from './utils/inviteCode.js';
 
 function buildFileContext(upload) {
   if (upload.file_type !== 'unknown') {
@@ -18,11 +20,21 @@ function buildFileContext(upload) {
 }
 
 function App() {
+  const [hasAccess, setHasAccess] = useState(() => !!getInviteCode());
   const { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, resetChat } = useChat();
   const { isUploading, uploadError, lastUpload, uploadFile, clearUploadError, clearLastUpload } = useFileUpload();
   const [globalError, setGlobalError] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileUploadRef = useRef(null);
+
+  const handleAccessGranted = useCallback((code) => {
+    setInviteCode(code);
+    setHasAccess(true);
+  }, []);
+
+  if (!hasAccess) {
+    return <AccessGate onSuccess={handleAccessGranted} />;
+  }
 
   const handleSend = useCallback((text) => {
     if (lastUpload) {
