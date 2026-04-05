@@ -1,6 +1,7 @@
 """Authentication middleware for the Solar Model API."""
 
 import os
+import re
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -65,6 +66,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # Health check is always exempt
         if request.url.path == "/health" and request.method == "GET":
+            return await call_next(request)
+
+        # Analysis images are loaded via <img> tags — browsers cannot send
+        # custom headers on image requests, so exempt GET on image paths.
+        if request.method == "GET" and re.match(
+            r"/analyses/[^/]+/images/", request.url.path
+        ):
             return await call_next(request)
 
         provided_key = request.headers.get("X-API-Key")
