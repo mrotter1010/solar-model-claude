@@ -38,7 +38,7 @@ env/
 data/
 /outputs/
 !src/outputs/
-uploads/
+/uploads/
 .env
 .env.production
 *.log
