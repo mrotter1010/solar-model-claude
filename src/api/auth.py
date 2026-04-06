@@ -75,12 +75,16 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
-        provided_key = request.headers.get("X-API-Key")
+        # Check header first, fall back to query parameter for browser-initiated
+        # requests (e.g. <a href> download links that can't send custom headers).
+        provided_key = request.headers.get("X-API-Key") or request.query_params.get(
+            "api_key"
+        )
 
         if not provided_key:
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Missing API key. Provide X-API-Key header."},
+                content={"detail": "Missing API key. Provide X-API-Key header or api_key query parameter."},
             )
 
         if provided_key != api_key:
