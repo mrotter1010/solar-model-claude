@@ -146,10 +146,19 @@ class Planner:
             The raw OpenAI ChatCompletion response object. The executor
             manages the tool-call loop, so this returns the first response.
         """
+        # Strip stale tool-chain messages from previous executions.
+        # The executor builds its own fresh tool chain during this execution;
+        # old tool/tool_call messages are noise and waste tokens.
+        execution_messages = [
+            m for m in messages
+            if m["role"] != "tool"
+            and not (m["role"] == "assistant" and "tool_calls" in m)
+        ]
+
         # Use execution prompt (planning-only constraints stripped).
         full_messages = [
             {"role": "system", "content": self._execution_prompt},
-            *messages,
+            *execution_messages,
             {
                 "role": "user",
                 "content": (
