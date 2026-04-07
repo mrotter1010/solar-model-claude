@@ -1,13 +1,16 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useChat } from './hooks/useChat';
 import { useFileUpload } from './hooks/useFileUpload';
+import { getConversations, deleteConversation, renameConversation } from './api/orchestrator.js';
 import Header from './components/Header';
+import Sidebar from './components/Sidebar';
 import ChatPanel from './components/ChatPanel';
 import MessageInput from './components/MessageInput';
 import ErrorBanner from './components/ErrorBanner';
 import FileUpload from './components/FileUpload';
 import AccessGate from './components/AccessGate';
 import { getInviteCode, setInviteCode } from './utils/inviteCode.js';
+import { getOrCreateUserId } from './utils/userIdentity.js';
 
 function buildFileContext(upload) {
   if (upload.file_type !== 'unknown') {
@@ -20,9 +23,13 @@ function buildFileContext(upload) {
 }
 
 function App() {
+  // Ensure anonymous user identity cookie exists before any API calls.
+  useState(() => getOrCreateUserId());
   const [hasAccess, setHasAccess] = useState(() => !!getInviteCode());
-  const { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, resetChat } = useChat();
+  const { conversationId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, loadConversation, resetChat } = useChat();
   const { isUploading, uploadError, lastUpload, uploadFile, clearUploadError, clearLastUpload } = useFileUpload();
+  const [conversations, setConversations] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [globalError, setGlobalError] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileUploadRef = useRef(null);
@@ -32,20 +39,51 @@ function App() {
     setHasAccess(true);
   }, []);
 
+  const fetchConversations = useCallback(async () => {
+    try {
+      const list = await getConversations();
+      setConversations(list);
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (hasAccess) fetchConversations();
+  }, [hasAccess, fetchConversations]);
+
   if (!hasAccess) {
     return <AccessGate onSuccess={handleAccessGranted} />;
   }
 
-  const handleSend = useCallback((text) => {
+  const handleDeleteConversation = useCallback(async (id) => {
+    try {
+      const deleted = await deleteConversation(id);
+      if (deleted) {
+        if (id === conversationId) resetChat();
+        fetchConversations();
+      }
+    } catch (err) {
+      console.error('Failed to delete conversation:', err);
+    }
+  }, [conversationId, resetChat, fetchConversations]);
+
+  const handleRenameConversation = useCallback(async (id, title) => {
+    await renameConversation(id, title);
+    fetchConversations();
+  }, [fetchConversations]);
+
+  const handleSend = useCallback(async (text) => {
     if (lastUpload) {
       const fileContext = buildFileContext(lastUpload);
       const fileAttachment = { filename: lastUpload.filename, file_type: lastUpload.file_type };
       clearLastUpload();
-      sendMessage(text, fileContext, fileAttachment);
+      await sendMessage(text, fileContext, fileAttachment);
     } else {
-      sendMessage(text);
+      await sendMessage(text);
     }
-  }, [lastUpload, clearLastUpload, sendMessage]);
+    fetchConversations();
+  }, [lastUpload, clearLastUpload, sendMessage, fetchConversations]);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -70,32 +108,44 @@ function App() {
 
   return (
     <div
-      className={`h-screen flex flex-col bg-vantyra-bg ${isDragOver ? 'ring-2 ring-inset ring-vantyra-accent' : ''}`}
+      className={`h-screen flex bg-vantyra-bg ${isDragOver ? 'ring-2 ring-inset ring-vantyra-accent' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <Header onNewChat={resetChat} />
-      {globalError && (
-        <ErrorBanner message={globalError} onDismiss={() => setGlobalError(null)} />
-      )}
-      <ChatPanel messages={messages} isLoading={isLoading} pendingPlan={pendingPlan} executionSteps={executionSteps} onApprove={approvePlan} />
-      <MessageInput
-        onSend={handleSend}
-        disabled={isLoading}
-        pendingUpload={lastUpload}
-        onClearPendingUpload={clearLastUpload}
-        leftSlot={
-          <FileUpload
-            ref={fileUploadRef}
-            onUpload={uploadFile}
-            isUploading={isUploading}
-            uploadError={uploadError}
-            lastUpload={lastUpload}
-            onClearError={clearUploadError}
-          />
-        }
+      <Sidebar
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(prev => !prev)}
+        conversations={conversations}
+        activeConversationId={conversationId}
+        onSelectConversation={loadConversation}
+        onDeleteConversation={handleDeleteConversation}
+        onRenameConversation={handleRenameConversation}
       />
+
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header onNewChat={() => { resetChat(); fetchConversations(); }} />
+        {globalError && (
+          <ErrorBanner message={globalError} onDismiss={() => setGlobalError(null)} />
+        )}
+        <ChatPanel messages={messages} isLoading={isLoading} pendingPlan={pendingPlan} executionSteps={executionSteps} onApprove={async () => { await approvePlan(); fetchConversations(); }} />
+        <MessageInput
+          onSend={handleSend}
+          disabled={isLoading}
+          pendingUpload={lastUpload}
+          onClearPendingUpload={clearLastUpload}
+          leftSlot={
+            <FileUpload
+              ref={fileUploadRef}
+              onUpload={uploadFile}
+              isUploading={isUploading}
+              uploadError={uploadError}
+              lastUpload={lastUpload}
+              onClearError={clearUploadError}
+            />
+          }
+        />
+      </div>
     </div>
   );
 }

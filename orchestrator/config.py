@@ -18,5 +18,6 @@ class OrchestratorConfig(BaseSettings):
     max_plan_steps: int = 10
     session_ttl_minutes: int = 60
     request_timeout: int = 120
+    database_url: str = "postgresql://solar:solar@localhost:5432/solar_model"
 
     model_config = {"env_prefix": ""}

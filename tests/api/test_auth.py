@@ -72,7 +72,7 @@ class TestAuthEnabled:
         resp = client.get("/analyses/load-types")
 
         assert resp.status_code == 401
-        assert resp.json()["detail"] == "Missing API key. Provide X-API-Key header."
+        assert resp.json()["detail"] == "Missing API key. Provide X-API-Key header or api_key query parameter."
 
     def test_wrong_key_returns_403(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

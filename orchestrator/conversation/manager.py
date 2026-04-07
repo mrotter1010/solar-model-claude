@@ -85,6 +85,16 @@ class ConversationManager:
         self._sessions[session_id].equipment_cache[search_term] = results
         self._touch(session_id)
 
+    def rekey_session(self, old_key: str, new_key: str) -> None:
+        """Move a session from one key to another.
+
+        Used to re-key a temporary session to its permanent conversation_id
+        after the DB row is created.
+        """
+        session = self._sessions.pop(old_key)
+        session.session_id = new_key
+        self._sessions[new_key] = session
+
     def get_openai_messages(self, session_id: str) -> list[dict]:
         """Return message history formatted for the OpenAI API.
 

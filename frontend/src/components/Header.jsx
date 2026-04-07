@@ -3,7 +3,7 @@ import vantyraIcon from '../assets/vantyra-icon.png';
 
 export default function Header({ onNewChat }) {
   return (
-    <header className="flex items-center h-20 px-4 bg-vantyra-bg-s border-b border-vantyra-border shrink-0">
+    <header className="flex items-center h-20 pl-12 pr-4 bg-vantyra-bg-s border-b border-vantyra-border shrink-0">
       <img src={vantyraIcon} alt="Vantyra" className="h-14 w-14 object-contain" />
       <span className="ml-2 text-2xl font-semibold tracking-tight">
         <span className="text-white">Vantyra</span>{' '}

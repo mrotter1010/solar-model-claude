@@ -1,11 +1,20 @@
-"""Beta access control middleware for the solar orchestrator."""
+"""Beta access control and user identity middleware for the solar orchestrator."""
 
+import logging
 import os
+import re
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
+
+logger = logging.getLogger(__name__)
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 class InviteCodeMiddleware(BaseHTTPMiddleware):
@@ -41,4 +50,39 @@ class InviteCodeMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Invalid or missing invite code"},
             )
 
+        return await call_next(request)
+
+
+class UserIdentityMiddleware(BaseHTTPMiddleware):
+    """Middleware that reads and validates the X-User-Id header.
+
+    Attaches the validated user ID to ``request.state.user_id`` so
+    downstream endpoints can access it. The header is optional — missing
+    headers result in a warning log and ``request.state.user_id = None``.
+    Malformed (non-UUID) values are rejected with 400.
+    """
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        """Validate X-User-Id header and attach to request state."""
+        user_id = request.headers.get("X-User-Id")
+
+        if not user_id:
+            request.state.user_id = None
+            if request.url.path != "/health":
+                logger.warning(
+                    "Missing X-User-Id header on %s %s",
+                    request.method,
+                    request.url.path,
+                )
+            return await call_next(request)
+
+        if not _UUID_RE.match(user_id):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "X-User-Id must be a valid UUID"},
+            )
+
+        request.state.user_id = user_id
         return await call_next(request)

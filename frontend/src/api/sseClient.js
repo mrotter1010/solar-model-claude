@@ -1,5 +1,6 @@
 import { CONFIG } from '../config.js';
 import { inviteHeaders } from '../utils/inviteCode.js';
+import { userIdHeaders } from '../utils/userIdentity.js';
 
 const BASE = CONFIG.orchestratorUrl;
 
@@ -34,20 +35,20 @@ function parseSSEEvent(raw) {
  *
  * Uses fetch + ReadableStream since EventSource only supports GET.
  *
- * @param {string} sessionId
+ * @param {string} conversationId
  * @param {(update: object) => void} onStepUpdate — called with step data for
  *   real-time UI updates. Each call includes {step_number, tool_name, status}
  *   where status is 'running' or 'complete'.
  * @returns {{promise: Promise<{synthesis: string|null, completedSteps: Array, error: string|null}>, cancel: () => void}}
  */
-export function streamApproval(sessionId, onStepUpdate) {
+export function streamApproval(conversationId, onStepUpdate) {
   const controller = new AbortController();
 
   const promise = (async () => {
     const res = await fetch(`${BASE}/chat/approve/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...inviteHeaders() },
-      body: JSON.stringify({ session_id: sessionId }),
+      headers: { 'Content-Type': 'application/json', ...inviteHeaders(), ...userIdHeaders() },
+      body: JSON.stringify({ conversation_id: conversationId }),
       signal: controller.signal,
     });
 

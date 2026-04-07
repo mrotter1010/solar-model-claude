@@ -1,15 +1,6 @@
 import { useState, useCallback } from 'react';
-import { sendMessage as apiSendMessage, approvePlan as apiApprovePlan } from '../api/orchestrator.js';
+import { sendMessage as apiSendMessage, approvePlan as apiApprovePlan, getConversation as apiGetConversation } from '../api/orchestrator.js';
 import { streamApproval } from '../api/sseClient.js';
-
-function getOrCreateSessionId() {
-  let id = sessionStorage.getItem('sessionId');
-  if (!id) {
-    id = crypto.randomUUID();
-    sessionStorage.setItem('sessionId', id);
-  }
-  return id;
-}
 
 /**
  * Build a steps array compatible with ResultsCard from streaming step data.
@@ -28,7 +19,7 @@ function buildStepsFromStream(completedSteps) {
 }
 
 export function useChat() {
-  const [sessionId, setSessionId] = useState(getOrCreateSessionId);
+  const [conversationId, setConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingPlan, setPendingPlan] = useState(false);
@@ -48,7 +39,13 @@ export function useChat() {
     setIsLoading(true);
 
     try {
-      const res = await apiSendMessage(sessionId, text, fileContext);
+      const res = await apiSendMessage(conversationId, text, fileContext);
+
+      // Capture conversation_id from the response on first message
+      if (conversationId === null && res.conversation_id) {
+        setConversationId(res.conversation_id);
+      }
+
       const assistantMsg = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -72,7 +69,7 @@ export function useChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId]);
+  }, [conversationId]);
 
   const approvePlan = useCallback(async () => {
     setIsLoading(true);
@@ -81,7 +78,7 @@ export function useChat() {
 
     // --- Try streaming path first ---
     try {
-      const { promise } = streamApproval(sessionId, (stepUpdate) => {
+      const { promise } = streamApproval(conversationId, (stepUpdate) => {
         setExecutionSteps(prev => {
           const existing = prev.find(s => s.step_number === stepUpdate.step_number);
           if (existing) {
@@ -119,7 +116,7 @@ export function useChat() {
 
     // --- Fallback: sync path (identical to original behavior) ---
     try {
-      const res = await apiApprovePlan(sessionId);
+      const res = await apiApprovePlan(conversationId);
       const assistantMsg = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -142,17 +139,57 @@ export function useChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId]);
+  }, [conversationId]);
+
+  const loadConversation = useCallback(async (targetConversationId) => {
+    setIsLoading(true);
+    setMessages([]);
+    setExecutionSteps([]);
+    setPendingPlan(false);
+
+    try {
+      const conv = await apiGetConversation(targetConversationId);
+      const transformed = (conv.messages || []).map((m) => {
+        const meta = m.metadata || {};
+        return {
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          responseType: meta.responseType || null,
+          steps: meta.steps || null,
+          fileAttachment: meta.fileAttachment || null,
+          timestamp: new Date(m.created_at).getTime(),
+        };
+      });
+
+      setConversationId(conv.id);
+      setMessages(transformed);
+
+      // Derive pendingPlan from the last message
+      const last = transformed[transformed.length - 1];
+      setPendingPlan(last?.responseType === 'plan');
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+      setMessages([{
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `Failed to load conversation: ${err.message}`,
+        responseType: 'error',
+        steps: null,
+        timestamp: Date.now(),
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const resetChat = useCallback(() => {
-    const newId = crypto.randomUUID();
-    sessionStorage.setItem('sessionId', newId);
-    setSessionId(newId);
+    setConversationId(null);
     setMessages([]);
     setExecutionSteps([]);
     setPendingPlan(false);
     setIsLoading(false);
   }, []);
 
-  return { sessionId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, resetChat };
+  return { conversationId, messages, isLoading, pendingPlan, executionSteps, sendMessage, approvePlan, loadConversation, resetChat };
 }
