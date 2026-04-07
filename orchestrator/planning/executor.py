@@ -230,16 +230,10 @@ class Executor:
                         "tool": tool_name,
                     })
 
-                # Yield complete event after executing
-                yield StepCompleteEvent(
-                    step_number=step_count,
-                    tool_name=tool_name,
-                    success=step["success"],
-                    result_summary=_truncate(tool_content, 500),
-                    step_data=step,
-                )
-
-                # Add tool result message to conversation
+                # Add tool result to session BEFORE yielding the SSE event.
+                # If the generator is cancelled after a yield (client
+                # disconnect), the session would be left with an orphaned
+                # assistant(tool_calls) and no matching tool result.
                 self._conversation_manager.add_message(
                     session_id,
                     ChatMessage(
@@ -248,6 +242,14 @@ class Executor:
                         tool_call_id=tc.id,
                         name=tool_name,
                     ),
+                )
+
+                yield StepCompleteEvent(
+                    step_number=step_count,
+                    tool_name=tool_name,
+                    success=step["success"],
+                    result_summary=_truncate(tool_content, 500),
+                    step_data=step,
                 )
 
             # Get next response from GPT-5

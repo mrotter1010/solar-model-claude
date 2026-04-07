@@ -97,9 +97,19 @@ class Planner:
         Returns:
             PlannerResponse with classified response_type and content.
         """
+        # Strip tool-chain messages (assistant with tool_calls, tool results).
+        # These are only relevant during the execution loop. The synthesis
+        # message already summarizes results in natural language. Sending
+        # tool-chain messages without tools= causes OpenAI validation errors.
+        planning_messages = [
+            m for m in messages
+            if m["role"] != "tool"
+            and not (m["role"] == "assistant" and "tool_calls" in m)
+        ]
+
         full_messages = [
             {"role": "system", "content": self._system_prompt},
-            *messages,
+            *planning_messages,
         ]
 
         # Omit tools so GPT-5 is forced to respond with text (the plan).
