@@ -91,15 +91,35 @@ def mock_executor():
 
 
 @pytest.fixture
-async def client(conversation_manager, mock_planner, mock_executor):
+def mock_conversation_db():
+    """Mocked ConversationDB with async no-op methods."""
+    db = AsyncMock()
+    db.create_conversation = AsyncMock(return_value={
+        "id": "00000000-0000-0000-0000-000000000099",
+        "created_at": "2026-04-08T00:00:00Z",
+    })
+    db.add_message = AsyncMock()
+    db.get_next_sequence = AsyncMock(return_value=1)
+    db.update_conversation_title = AsyncMock()
+    db.get_conversation = AsyncMock(return_value=None)
+    return db
+
+
+@pytest.fixture
+async def client(
+    conversation_manager, mock_planner, mock_executor, mock_conversation_db
+):
     """Async HTTP client with app state injected (no lifespan)."""
     app.state.conversation_manager = conversation_manager
     app.state.planner = mock_planner
     app.state.executor = mock_executor
+    app.state.conversation_db = mock_conversation_db
 
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://test"
+        transport=transport,
+        base_url="http://test",
+        headers={"X-User-Id": "00000000-0000-0000-0000-000000000001"},
     ) as c:
         yield c
 
@@ -146,7 +166,7 @@ class TestStreamContentType:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         assert resp.status_code == 200
@@ -182,7 +202,7 @@ class TestStreamEventOrder:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -224,7 +244,7 @@ class TestStreamEventOrder:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -264,7 +284,7 @@ class TestStreamEventData:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -295,7 +315,7 @@ class TestStreamEventData:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -321,7 +341,7 @@ class TestStreamEventData:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -342,7 +362,7 @@ class TestStreamEventData:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -365,7 +385,7 @@ class TestStreamEventData:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -404,7 +424,7 @@ class TestStreamEventData:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -439,7 +459,7 @@ class TestStreamEventData:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         events = _parse_sse_events(resp.text)
@@ -460,7 +480,7 @@ class TestStreamErrorCases:
         """Nonexistent session returns 404, not SSE stream."""
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": "nonexistent"},
+            json={"conversation_id": "nonexistent"},
         )
 
         assert resp.status_code == 404
@@ -473,7 +493,7 @@ class TestStreamErrorCases:
 
         resp = await client.post(
             "/chat/approve/stream",
-            json={"session_id": "idle-session"},
+            json={"conversation_id": "idle-session"},
         )
 
         assert resp.status_code == 400
@@ -501,7 +521,7 @@ class TestStreamSynthesisHistory:
 
         await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         session = conversation_manager.get_session(session_id)
@@ -524,7 +544,7 @@ class TestStreamSynthesisHistory:
 
         await client.post(
             "/chat/approve/stream",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         session = conversation_manager.get_session(session_id)
@@ -567,12 +587,12 @@ class TestApproveEndpointUnchanged:
 
         resp = await client.post(
             "/chat/approve",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["session_id"] == session_id
+        assert data["conversation_id"] == session_id
         assert data["success"] is True
         assert "10,422" in data["content"]
         assert len(data["steps"]) == 1

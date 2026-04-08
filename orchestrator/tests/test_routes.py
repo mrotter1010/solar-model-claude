@@ -44,15 +44,35 @@ def mock_executor():
 
 
 @pytest.fixture
-async def client(conversation_manager, mock_planner, mock_executor):
+def mock_conversation_db():
+    """Mocked ConversationDB with async no-op methods."""
+    db = AsyncMock()
+    db.create_conversation = AsyncMock(return_value={
+        "id": "00000000-0000-0000-0000-000000000099",
+        "created_at": "2026-04-08T00:00:00Z",
+    })
+    db.add_message = AsyncMock()
+    db.get_next_sequence = AsyncMock(return_value=1)
+    db.update_conversation_title = AsyncMock()
+    db.get_conversation = AsyncMock(return_value=None)
+    return db
+
+
+@pytest.fixture
+async def client(
+    conversation_manager, mock_planner, mock_executor, mock_conversation_db
+):
     """Async HTTP client with app state injected (no lifespan)."""
     app.state.conversation_manager = conversation_manager
     app.state.planner = mock_planner
     app.state.executor = mock_executor
+    app.state.conversation_db = mock_conversation_db
 
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://test"
+        transport=transport,
+        base_url="http://test",
+        headers={"X-User-Id": "00000000-0000-0000-0000-000000000001"},
     ) as c:
         yield c
 
@@ -116,12 +136,12 @@ class TestChat:
         """POST /chat with a new session_id creates session and returns response."""
         resp = await client.post(
             "/chat",
-            json={"session_id": "sess-1", "message": "Hello"},
+            json={"conversation_id": "sess-1", "message": "Hello"},
         )
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["session_id"] == "sess-1"
+        assert data["conversation_id"] == "sess-1"
         assert data["response_type"] == "response"
         assert data["content"] == "Hello! I can help with solar analysis."
         assert data["status"] == "idle"
@@ -133,7 +153,7 @@ class TestChat:
 
         resp = await client.post(
             "/chat",
-            json={"session_id": "sess-2", "message": "Analyze a 5 MW site in Phoenix"},
+            json={"conversation_id": "sess-2", "message": "Analyze a 5 MW site in Phoenix"},
         )
 
         assert resp.status_code == 200
@@ -151,7 +171,7 @@ class TestChat:
         mock_planner.generate_plan = AsyncMock(return_value=_plan_response())
         resp1 = await client.post(
             "/chat",
-            json={"session_id": "sess-3", "message": "Analyze 5 MW in Phoenix"},
+            json={"conversation_id": "sess-3", "message": "Analyze 5 MW in Phoenix"},
         )
         assert resp1.json()["response_type"] == "plan"
 
@@ -164,7 +184,7 @@ class TestChat:
         )
         resp2 = await client.post(
             "/chat",
-            json={"session_id": "sess-3", "message": "Use fixed-tilt instead"},
+            json={"conversation_id": "sess-3", "message": "Use fixed-tilt instead"},
         )
 
         assert resp2.status_code == 200
@@ -184,7 +204,7 @@ class TestChat:
 
         resp = await client.post(
             "/chat",
-            json={"session_id": "sess-err", "message": "Hello"},
+            json={"conversation_id": "sess-err", "message": "Hello"},
         )
 
         assert resp.status_code == 200
@@ -209,7 +229,7 @@ class TestApprove:
         mock_planner.generate_plan = AsyncMock(return_value=_plan_response())
         await client.post(
             "/chat",
-            json={"session_id": "sess-a", "message": "Analyze 5 MW"},
+            json={"conversation_id": "sess-a", "message": "Analyze 5 MW"},
         )
 
         # Step 2: approve — mock executor to return result and update status
@@ -221,12 +241,12 @@ class TestApprove:
 
         resp = await client.post(
             "/chat/approve",
-            json={"session_id": "sess-a"},
+            json={"conversation_id": "sess-a"},
         )
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["session_id"] == "sess-a"
+        assert data["conversation_id"] == "sess-a"
         assert data["success"] is True
         assert "10,422" in data["content"]
         assert len(data["steps"]) == 1
@@ -238,12 +258,12 @@ class TestApprove:
         # Create a session via /chat with a non-plan response
         await client.post(
             "/chat",
-            json={"session_id": "sess-idle", "message": "Hello"},
+            json={"conversation_id": "sess-idle", "message": "Hello"},
         )
 
         resp = await client.post(
             "/chat/approve",
-            json={"session_id": "sess-idle"},
+            json={"conversation_id": "sess-idle"},
         )
 
         assert resp.status_code == 400
@@ -254,7 +274,7 @@ class TestApprove:
         """Approve on nonexistent session returns 404."""
         resp = await client.post(
             "/chat/approve",
-            json={"session_id": "nonexistent"},
+            json={"conversation_id": "nonexistent"},
         )
 
         assert resp.status_code == 404
@@ -273,14 +293,14 @@ class TestGetSession:
         """GET /sessions/{id} returns session metadata after /chat."""
         await client.post(
             "/chat",
-            json={"session_id": "sess-info", "message": "Hello"},
+            json={"conversation_id": "sess-info", "message": "Hello"},
         )
 
         resp = await client.get("/sessions/sess-info")
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["session_id"] == "sess-info"
+        assert data["conversation_id"] == "sess-info"
         assert data["status"] == "idle"
         assert data["message_count"] == 2  # user + assistant
         assert data["run_ids"] == []
@@ -324,7 +344,7 @@ class TestFullChatFlowIntegration:
 
         resp1 = await client.post(
             "/chat",
-            json={"session_id": session_id, "message": "Analyze a 5 MW site in Phoenix"},
+            json={"conversation_id": session_id, "message": "Analyze a 5 MW site in Phoenix"},
         )
 
         assert resp1.status_code == 200
@@ -343,7 +363,7 @@ class TestFullChatFlowIntegration:
 
         resp2 = await client.post(
             "/chat",
-            json={"session_id": session_id, "message": "Use fixed-tilt instead of tracker"},
+            json={"conversation_id": session_id, "message": "Use fixed-tilt instead of tracker"},
         )
 
         assert resp2.status_code == 200
@@ -386,7 +406,7 @@ class TestFullChatFlowIntegration:
 
         resp3 = await client.post(
             "/chat/approve",
-            json={"session_id": session_id},
+            json={"conversation_id": session_id},
         )
 
         assert resp3.status_code == 200
@@ -401,7 +421,7 @@ class TestFullChatFlowIntegration:
 
         assert resp4.status_code == 200
         data4 = resp4.json()
-        assert data4["session_id"] == session_id
+        assert data4["conversation_id"] == session_id
         assert data4["status"] == "complete"
         assert "run-int-001" in data4["run_ids"]
         # Messages: user, assistant(plan), user, assistant(plan), assistant(synthesis)
@@ -417,7 +437,7 @@ class TestFullChatFlowIntegration:
 
         resp5 = await client.post(
             "/chat",
-            json={"session_id": session_id, "message": "Is that CF typical for Phoenix?"},
+            json={"conversation_id": session_id, "message": "Is that CF typical for Phoenix?"},
         )
 
         assert resp5.status_code == 200
