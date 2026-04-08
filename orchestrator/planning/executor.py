@@ -28,6 +28,36 @@ _RUN_TOOLS = frozenset({
     "run_buildability",
 })
 
+# Keys to strip from tool results before session storage, keyed by tool name.
+# Tool results stored in session messages are sent to GPT-5 on every subsequent
+# turn, so they must be compact. Large data (8760 hourly arrays, raw timeseries)
+# should be stripped — GPT-5 only needs summary stats and monthly averages to
+# synthesize a response for the user.
+_LARGE_RESULT_KEYS: dict[str, frozenset[str]] = {
+    "get_lmp_prices": frozenset({"prices", "timestamps"}),
+}
+
+
+def _summarize_tool_result(tool_name: str, result: dict) -> dict:
+    """Strip large arrays from a tool result before session storage.
+
+    Follows the same pattern as binary download handling (PDF/CSV) — the
+    session stores a compact representation while full data remains
+    available via API download endpoints.
+
+    Args:
+        tool_name: Name of the tool that produced this result.
+        result: The raw API response dict.
+
+    Returns:
+        The result dict with large keys removed for known tools,
+        or the original dict unchanged for all other tools.
+    """
+    keys_to_strip = _LARGE_RESULT_KEYS.get(tool_name)
+    if keys_to_strip is None:
+        return result
+    return {k: v for k, v in result.items() if k not in keys_to_strip}
+
 
 class ExecutionResult:
     """Container for the full execution outcome.
@@ -207,7 +237,10 @@ class Executor:
                             "size_bytes": len(api_result),
                         }
                     else:
-                        tool_content = json.dumps(api_result)
+                        summarized = _summarize_tool_result(
+                            tool_name, api_result
+                        )
+                        tool_content = json.dumps(summarized)
                         step["result"] = api_result
 
                         # Cache run results
@@ -225,10 +258,13 @@ class Executor:
                     step["success"] = False
                     step["error"] = str(exc)
                     overall_success = False
-                    tool_content = json.dumps({
+                    error_result = {
                         "error": str(exc),
                         "tool": tool_name,
-                    })
+                    }
+                    tool_content = json.dumps(
+                        _summarize_tool_result(tool_name, error_result)
+                    )
 
                 # Add tool result to session BEFORE yielding the SSE event.
                 # If the generator is cancelled after a yield (client
