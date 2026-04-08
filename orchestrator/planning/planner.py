@@ -27,6 +27,14 @@ class Planner:
         config: Orchestrator configuration with OpenAI credentials and model.
     """
 
+    # Instruction appended to every execution-loop call so GPT-5 always
+    # knows to synthesize results once all tool calls are done.
+    _SYNTHESIS_INSTRUCTION = (
+        "After all plan steps are complete, provide a detailed synthesis "
+        "of the results as your final text response. Present key metrics, "
+        "findings, and any relevant context to the user."
+    )
+
     # Regex to find the CRITICAL ARCHITECTURAL CONSTRAINT section.
     # Matches from the ``## CRITICAL ARCHITECTURAL CONSTRAINT`` heading
     # up to (but not including) the next ``## `` heading or ``---`` separator.
@@ -163,12 +171,10 @@ class Planner:
                 "role": "user",
                 "content": (
                     "The user has approved the above plan. You are now in "
-                    "EXECUTION MODE. Call tools directly using the provided "
-                    "tool definitions — do NOT generate plans, commentary, "
-                    "or ANALYSIS PLAN blocks. Only emit tool_calls. "
-                    "Execute the plan step by step in order. Call one tool "
-                    "at a time. After all plan steps are complete, provide "
-                    "a synthesis of the results as your final text response. "
+                    "EXECUTION MODE. Execute the plan by calling tools step "
+                    "by step — do NOT generate plans, commentary, or "
+                    "ANALYSIS PLAN blocks. Call one tool at a time. "
+                    f"{self._SYNTHESIS_INSTRUCTION} "
                     "IMPORTANT: For equipment searches, call search_modules "
                     "once and search_inverters once. After getting results "
                     "with count > 0, stop searching and use those exact name "
@@ -191,6 +197,8 @@ class Planner:
 
         Sends the full conversation (including tool results from the last
         iteration) back to GPT-5 for the next tool call or synthesis.
+        Appends the synthesis instruction so GPT-5 always knows to produce
+        a detailed text response once all tool calls are complete.
 
         Args:
             messages: Full conversation history including tool results.
@@ -202,6 +210,15 @@ class Planner:
         full_messages = [
             {"role": "system", "content": self._execution_prompt},
             *messages,
+            {
+                "role": "user",
+                "content": (
+                    "Continue executing the plan. If all tool calls are "
+                    "complete, provide a detailed synthesis of the results "
+                    "as your final text response. Present key metrics, "
+                    "findings, and any relevant context to the user."
+                ),
+            },
         ]
         return await self._client.chat.completions.create(
             model=self._model,
