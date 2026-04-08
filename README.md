@@ -19,18 +19,19 @@ Four Docker services behind Cloudflare SSL:
             (:8000)              (:8001)
           PySAM engine       GPT-5 function calling
           Climate data       Plan-then-execute
-          Analysis pipeline  Chat interface
-                    │
-                    ▼
-              TimescaleDB
-             (PostgreSQL 16)
+          Analysis pipeline  Chat persistence
+                    │             │
+                    └──────┬──────┘
+                           ▼
+                     TimescaleDB
+                    (PostgreSQL 16)
 ```
 
 - **Nginx** — Reverse proxy + static frontend (React build)
 - **API** — PySAM simulation, NSRDB/Solcast climate data, rate engine, BESS dispatch, buildability analysis
-- **Orchestrator** — GPT-5 natural language interface with function calling against the API
-- **TimescaleDB** — Run tracking, results storage, audit trail
-- **Frontend** — React + Vite + Tailwind, built as static assets and served by Nginx
+- **Orchestrator** — GPT-5 natural language interface with function calling against the API. Conversation persistence with anonymous user identity, DB message hydration on resume.
+- **TimescaleDB** — Run tracking, results storage, conversation persistence, audit trail
+- **Frontend** — React + Vite + Tailwind. Chat UI with collapsible sidebar, conversation history, plan approval, SSE streaming.
 
 ## Capabilities
 
@@ -82,7 +83,7 @@ Production secrets live in `.env.production` on the VPS (never committed). See `
 pytest tests/
 ```
 
-1,924 tests covering config validation, climate clients, PySAM simulation, ML corrections, rate engine, BESS dispatch, buildability analysis, REST API endpoints, LLM orchestrator, and end-to-end integration.
+1,983 tests covering config validation, climate clients, PySAM simulation, ML corrections, rate engine, BESS dispatch, buildability analysis, REST API endpoints, LLM orchestrator, and end-to-end integration.
 
 ## Tech Stack
 

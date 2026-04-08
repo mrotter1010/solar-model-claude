@@ -33,6 +33,7 @@ Milestone-based development log for solar-model-claude. Moved from README.md dur
 | M22 | Frontend Redesign | Done | Dark theme, layout overhaul, UX polish |
 | M22a | Orchestrator UX | Done | Orchestrator UX polish, smart file handling |
 | M23 | Beta Deployment | Done | Environment config, invite code auth, access gate, Nginx reverse proxy, Docker production config, deploy script |
+| M24 | Chat Persistence | Done | Anonymous user identity, conversation + message DB persistence (TimescaleDB), conversation CRUD endpoints, sidebar UI, LLM title generation, session_id→conversation_id rename. Bug fixes: tool-chain message filtering, LMP result summarization, synthesis instruction persistence. 1,983 tests. |
 
 ## Roadmap
 
@@ -41,6 +42,41 @@ Milestone-based development log for solar-model-claude. Moved from README.md dur
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
 | M14d | Detailed Degradation | Rainflow counting, calendar aging, C-rate effects |
+
+## M24: Chat Persistence, Sidebar, Conversation Management
+
+**Commits:** `e98b21e` (core), `e962e20` (m24a), `7338a53` (m24b), `63fc1ce` (m24c), `97e5b8e` (m24d), `2a4fe3c` (m24e)
+
+### Core Features
+
+- **Anonymous user identity** — UUID cookie generated client-side, sent as `X-User-Id` header. `UserIdentityMiddleware` validates format and attaches to request state. No login required.
+- **Conversation persistence** — `conversations` + `messages` tables in TimescaleDB via Alembic migration. Async DB access layer (`orchestrator/database.py`) using SQLAlchemy async + asyncpg.
+- **Conversation CRUD** — List, get (with messages), delete, and rename endpoints on orchestrator. Three-dot menu in sidebar for rename/delete with inline confirmation.
+- **Message persistence** — All `/chat` and `/chat/approve` flows persist messages to DB with metadata (`responseType`, `steps`, `fileAttachment`). Sequence numbers for ordering.
+- **API contract rename** — `session_id` replaced with `conversation_id` across all request/response models, frontend API calls, and orchestrator routes.
+- **Collapsible sidebar** — Conversation list with switching, "New Chat" button, auto-generated titles via gpt-4o-mini background task (`asyncio.create_task`).
+- **Session continuity** — When resuming a conversation with an expired in-memory session, messages are hydrated from DB before the next planner call.
+
+### Bug Fixes (M24a–M24e)
+
+- **M24a** (`e962e20`): Filter `role: "tool"` and `assistant(tool_calls)` messages from planning calls — sending tool-chain messages without `tools=` causes OpenAI validation errors. Reordered executor to call `add_message` before `yield` to prevent orphaned tool_calls on client disconnect.
+- **M24b** (`7338a53`): Extended tool-chain message filter to `generate_execution_calls()`. Defense-in-depth: stale tool/tool_call messages from previous executions waste tokens and can confuse GPT-5.
+- **M24c** (`63fc1ce`): Added `_summarize_tool_result()` to strip `prices` (8760 floats) and `timestamps` (8760 strings) from `get_lmp_prices` results before session storage. Reduced tool message from ~55K tokens to ~140 tokens (99.7% reduction). Without this, two LMP calls exceeded GPT-5's context window.
+- **M24d** (`97e5b8e`): Fixed empty synthesis after LMP execution. Root cause: the execution instruction ("provide a synthesis of results") was only in `generate_execution_calls()` — `continue_execution()` did not include it. Also removed contradictory "Only emit tool_calls" wording. Now both methods include clear synthesis instructions.
+- **M24e** (`2a4fe3c`): Fixed 23 failing orchestrator route tests. Added mock `conversation_db` to test fixtures, `X-User-Id` header to test HTTP clients, renamed `session_id` → `conversation_id` in all request payloads and response assertions.
+
+### Key Technical Decisions
+
+- **Async DB layer** — Used SQLAlchemy async engine + asyncpg rather than sync DB calls, since the orchestrator is already fully async (FastAPI + OpenAI async client). Raw SQL via `text()` rather than ORM models to keep the layer thin.
+- **Sequence numbers** — Messages use explicit sequence numbers rather than relying on `created_at` ordering. Avoids timestamp precision issues and makes message ordering deterministic.
+- **Summarize at session storage, not at API** — LMP tool results are summarized in the executor before storing in session messages, not at the API endpoint. The full data remains available via the API for download endpoints and frontend charts.
+- **Synthesis instruction on every loop iteration** — Rather than storing the execution instruction in session messages, `continue_execution()` appends a fresh reminder. This keeps the instruction visible to GPT-5 without polluting the conversation history.
+
+### Lessons Learned
+
+- **Tool-chain messages are invisible landmines.** OpenAI's API rejects `role: "tool"` messages when `tools=` is not provided, but the error only surfaces when the planner is called after an execution. The filter must be applied in every code path that sends messages without tools.
+- **LLM context windows need active management.** A single 8760-element array in a tool result consumes ~55K tokens. Two LMP calls exceeded GPT-5's context window. Tool results stored in session messages compound on every subsequent turn — they must be compact.
+- **Execution instructions vanish in multi-turn tool loops.** The executor's `continue_execution()` only sends session messages + system prompt. Any instruction from the initial `generate_execution_calls()` call is lost after the first iteration. GPT-5 needs the synthesis instruction visible on every turn.
 
 ## Pipeline Overview
 
@@ -241,10 +277,14 @@ Predicts the percentage of annual AC energy that hourly-resolution PySAM simulat
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/chat` | Send a message |
+| POST | `/chat` | Send a message (creates/resumes conversation) |
 | POST | `/chat/approve` | Approve and execute a pending plan |
 | POST | `/chat/approve/stream` | Approve and execute with SSE streaming |
-| GET | `/sessions/{session_id}` | Get session info |
+| GET | `/sessions/{conversation_id}` | Get in-memory session info |
+| GET | `/conversations` | List conversations for user |
+| GET | `/conversations/{conversation_id}` | Get conversation with messages |
+| DELETE | `/conversations/{conversation_id}` | Delete a conversation |
+| POST | `/conversations/{conversation_id}/title` | Update conversation title |
 | GET | `/health` | Health check |
 
 ## Project Structure
@@ -273,7 +313,7 @@ frontend/                            # React + Vite + Tailwind chat UI
 
 ## Database Schema
 
-PostgreSQL/TimescaleDB with 6 tables managed via Alembic migrations:
+PostgreSQL/TimescaleDB with 8 tables managed via Alembic migrations:
 
 | Table | Purpose |
 |-------|---------|
@@ -283,3 +323,5 @@ PostgreSQL/TimescaleDB with 6 tables managed via Alembic migrations:
 | `run_inputs` | Full input parameters |
 | `run_results` | Results, metrics, file paths |
 | `bill_calculation_runs` | Rate schedule metadata |
+| `conversations` | Chat conversations (anonymous_user_id, title, timestamps) |
+| `messages` | Conversation messages (role, content, metadata, sequence) |
