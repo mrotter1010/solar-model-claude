@@ -122,9 +122,9 @@ PHOENIX_WEATHER_FEATURES = {
 class TestApplySubhourlyCorrection:
     """Tests for SolarModelingPipeline._apply_subhourly_correction."""
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.3)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.3)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     def test_positive_correction_modifies_ac_gross(
         self, mock_weather, mock_predict, mock_version, tmp_path
     ):
@@ -154,9 +154,9 @@ class TestApplySubhourlyCorrection:
         assert metadata["subhourly_model_version"] == "v1"
         assert "raw_annual_energy_mwh" in metadata
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.0)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.0)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     def test_zero_correction_recorded_but_no_modification(
         self, mock_weather, mock_predict, mock_version, tmp_path
     ):
@@ -197,7 +197,7 @@ class TestApplySubhourlyCorrection:
         # Assert — empty metadata, no crash
         assert metadata == {}
 
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     def test_missing_model_artifact_returns_empty(self, mock_weather, tmp_path):
         """FileNotFoundError from model loading skips correction gracefully."""
         # Arrange
@@ -214,7 +214,7 @@ class TestApplySubhourlyCorrection:
         # Assert — empty metadata, pipeline continues
         assert metadata == {}
 
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     def test_failed_weather_features_returns_empty(self, mock_weather, tmp_path):
         """Exception in compute_weather_features skips correction gracefully."""
         # Arrange
@@ -269,9 +269,9 @@ class TestApplySubhourlyCorrection:
         # Assert
         assert metadata == {}
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.3)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.3)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     def test_raw_annual_energy_reflects_pre_correction_with_shading(
         self, mock_weather, mock_predict, mock_version, tmp_path
     ):
@@ -326,9 +326,9 @@ class TestPipelineWithCorrection:
         )
         return site
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.15)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.15)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_correction_metadata_in_summary(
@@ -351,7 +351,7 @@ class TestPipelineWithCorrection:
         assert summary["subhourly_model_version"] == "v1"
         assert "raw_annual_energy_mwh" in summary
 
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_pipeline_continues_when_weather_features_fail(
@@ -375,9 +375,9 @@ class TestPipelineWithCorrection:
         summary = results["summaries"][0]
         assert "subhourly_correction_pct" not in summary
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.0)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.0)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_zero_correction_still_recorded_in_summary(
@@ -397,9 +397,9 @@ class TestPipelineWithCorrection:
         assert summary["subhourly_correction_pct"] == 0.0
         assert summary["subhourly_model_version"] == "v1"
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.5)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.5)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_adjusted_energy_less_than_raw(
@@ -429,9 +429,9 @@ class TestPipelineWithCorrection:
 class TestCorrectionOutputArtifact:
     """Write test results to outputs/test_results/ for manual inspection."""
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.3)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.3)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_write_correction_artifact(

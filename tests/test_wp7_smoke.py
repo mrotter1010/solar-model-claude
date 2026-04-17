@@ -186,7 +186,7 @@ class TestWP7SmokeTests:
     """End-to-end smoke tests for 3 site configurations."""
 
     @patch("src.pipeline.save_run_to_db")
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     @patch("src.pipeline.run_climate_data_pipeline")
     def test_smoke_all_three_configs(

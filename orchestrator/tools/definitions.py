@@ -1,4 +1,4 @@
-"""OpenAI function/tool schemas for the 13 analysis API tools."""
+"""OpenAI function/tool schemas for the 14 analysis API tools."""
 
 TOOL_DEFINITIONS: list[dict] = [
     {
@@ -1100,6 +1100,245 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "run_optimization",
+            "description": (
+                "Run solar layout optimization to find optimal system design. "
+                "Sweeps GCR and DC:AC ratio combinations across the buildable "
+                "area to maximize production, minimize LCOE, or maximize NPV. "
+                "Supports production mode (no cost inputs), LCOE mode (with "
+                "cost inputs), NPV mode (with cost + revenue inputs), and "
+                "solar+BESS mode (with bess_enabled=true)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "latitude": {
+                        "type": "number",
+                        "description": "Site latitude (-90 to 90)",
+                    },
+                    "longitude": {
+                        "type": "number",
+                        "description": "Site longitude (-180 to 180)",
+                    },
+                    "buildable_acres": {
+                        "type": "number",
+                        "description": (
+                            "Buildable land area in acres. Mutually exclusive "
+                            "with buildability_run_id. Provide exactly one."
+                        ),
+                    },
+                    "buildability_run_id": {
+                        "type": "string",
+                        "description": (
+                            "Run ID from a previous buildability analysis to "
+                            "look up buildable acres. Mutually exclusive with "
+                            "buildable_acres."
+                        ),
+                    },
+                    "racking": {
+                        "type": "string",
+                        "enum": ["fixed", "tracker"],
+                        "description": (
+                            "Racking type (default: 'tracker')"
+                        ),
+                    },
+                    "module_name": {
+                        "type": "string",
+                        "description": (
+                            "Exact CEC module name from equipment search. "
+                            "Uses a default module if omitted."
+                        ),
+                    },
+                    "inverter_name": {
+                        "type": "string",
+                        "description": (
+                            "Exact CEC inverter name from equipment search. "
+                            "Uses a default inverter if omitted."
+                        ),
+                    },
+                    "gcr_range": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": (
+                            "GCR sweep range as [min, max]. Default depends "
+                            "on racking: [0.25, 0.45] for trackers, "
+                            "[0.35, 0.65] for fixed-tilt."
+                        ),
+                    },
+                    "gcr_step": {
+                        "type": "number",
+                        "description": (
+                            "GCR sweep step size (default: 0.05)"
+                        ),
+                    },
+                    "dcac_range": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": (
+                            "DC:AC ratio sweep range as [min, max] "
+                            "(default: [1.15, 1.60])"
+                        ),
+                    },
+                    "dcac_step": {
+                        "type": "number",
+                        "description": (
+                            "DC:AC ratio sweep step size (default: 0.05)"
+                        ),
+                    },
+                    "utilization_factor": {
+                        "type": "number",
+                        "description": (
+                            "Fraction of buildable acres to use for panels "
+                            "(0 to 1, default: 0.75)"
+                        ),
+                    },
+                    "bess_enabled": {
+                        "type": "boolean",
+                        "description": (
+                            "Enable solar+BESS joint optimization "
+                            "(default: false). Requires NPV-level economics "
+                            "and dispatch_mode."
+                        ),
+                    },
+                    "dispatch_mode": {
+                        "type": "string",
+                        "enum": ["btm", "ftm"],
+                        "description": (
+                            "BESS dispatch mode. Required when "
+                            "bess_enabled=true. 'btm' for behind-the-meter, "
+                            "'ftm' for front-of-meter wholesale."
+                        ),
+                    },
+                    "charging_mode": {
+                        "type": "string",
+                        "enum": ["solar_and_grid", "solar_only"],
+                        "description": (
+                            "Battery charging source (default: "
+                            "'solar_and_grid')"
+                        ),
+                    },
+                    "bess_power_fractions": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": (
+                            "BESS power as fractions of solar AC capacity "
+                            "to sweep (e.g., [0.25, 0.50, 0.75, 1.0])"
+                        ),
+                    },
+                    "bess_durations_hr": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": (
+                            "BESS duration values in hours to sweep "
+                            "(e.g., [2, 4])"
+                        ),
+                    },
+                    "solar_cost_per_kw_dc": {
+                        "type": "number",
+                        "description": (
+                            "Solar installed cost $/kW_DC. Required for "
+                            "LCOE and NPV modes."
+                        ),
+                    },
+                    "solar_opex_per_kw_dc_year": {
+                        "type": "number",
+                        "description": (
+                            "Solar O&M $/kW_DC/yr (default: 0)"
+                        ),
+                    },
+                    "discount_rate_pct": {
+                        "type": "number",
+                        "description": (
+                            "Discount rate % for NPV calculation "
+                            "(default: 7.0)"
+                        ),
+                    },
+                    "project_lifetime_years": {
+                        "type": "integer",
+                        "description": (
+                            "Project lifetime in years (default: 25)"
+                        ),
+                    },
+                    "degradation_pct": {
+                        "type": "number",
+                        "description": (
+                            "Annual degradation % (default: 0.5)"
+                        ),
+                    },
+                    "itc_pct": {
+                        "type": "number",
+                        "description": (
+                            "Investment tax credit % (default: 30)"
+                        ),
+                    },
+                    "energy_price_per_kwh": {
+                        "type": "number",
+                        "description": (
+                            "Energy sale price $/kWh. Required for NPV mode."
+                        ),
+                    },
+                    "energy_cost_escalator_pct": {
+                        "type": "number",
+                        "description": (
+                            "Annual energy price escalation % (default: 0)"
+                        ),
+                    },
+                    "bess_cost_per_kwh": {
+                        "type": "number",
+                        "description": (
+                            "BESS installed cost $/kWh (default: 340)"
+                        ),
+                    },
+                    "bess_opex_per_kw_year": {
+                        "type": "number",
+                        "description": (
+                            "BESS O&M $/kW/yr (default: 25)"
+                        ),
+                    },
+                    "rate_schedule": {
+                        "type": "object",
+                        "description": (
+                            "Inline rate schedule for BTM BESS dispatch. "
+                            "Use the build_rate tool to construct."
+                        ),
+                    },
+                    "load_profile_kwh": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": (
+                            "8760 hourly load profile in kWh for BTM "
+                            "BESS dispatch."
+                        ),
+                    },
+                    "lmp_prices": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": (
+                            "8760 hourly LMP prices in $/MWh for FTM "
+                            "BESS dispatch. Use get_lmp_prices to obtain."
+                        ),
+                    },
+                    "lmp_iso": {
+                        "type": "string",
+                        "description": (
+                            "ISO identifier for FTM dispatch "
+                            "(e.g., 'pjm', 'ercot', 'caiso')"
+                        ),
+                    },
+                    "lmp_zone": {
+                        "type": "string",
+                        "description": (
+                            "Pricing zone for FTM dispatch"
+                        ),
+                    },
+                },
+                "required": ["latitude", "longitude"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_lmp_prices",
             "description": (
                 "Query historical locational marginal prices (LMP) for a US "
@@ -1177,5 +1416,6 @@ TOOL_ENDPOINTS: dict[str, tuple[str, str]] = {
     "get_results": ("GET", "/analyses/{run_id}/results"),
     "get_report": ("GET", "/analyses/{run_id}/report"),
     "get_timeseries": ("GET", "/analyses/{run_id}/timeseries"),
+    "run_optimization": ("POST", "/analyses/optimize"),
     "get_lmp_prices": ("GET", "/lmp/prices"),
 }

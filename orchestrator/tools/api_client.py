@@ -6,7 +6,7 @@ import httpx
 
 
 class AnalysisAPIClient:
-    """Async HTTP client wrapping all 14 analysis API endpoints.
+    """Async HTTP client wrapping all 15 analysis API endpoints.
 
     Args:
         base_url: Base URL of the analysis API (e.g. "http://localhost:8000").
@@ -168,6 +168,12 @@ class AnalysisAPIClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def run_optimization(self, payload: dict) -> dict:
+        """Run solar layout optimization sweep."""
+        resp = await self._client.post("/analyses/optimize", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
     # ------------------------------------------------------------------
     # Result retrieval endpoints
     # ------------------------------------------------------------------
@@ -200,7 +206,7 @@ class AnalysisAPIClient:
         """Dispatch a tool call to the appropriate method.
 
         Args:
-            tool_name: One of the 13 tool names from TOOL_DEFINITIONS.
+            tool_name: One of the 14 tool names from TOOL_DEFINITIONS.
             arguments: The arguments dict from OpenAI's function call.
 
         Returns:
@@ -238,6 +244,8 @@ class AnalysisAPIClient:
             return await self.run_bess(arguments)
         elif tool_name == "run_buildability":
             return await self.run_buildability(arguments)
+        elif tool_name == "run_optimization":
+            return await self.run_optimization(arguments)
         elif tool_name == "get_results":
             return await self.get_results(run_id=arguments["run_id"])
         elif tool_name == "get_report":

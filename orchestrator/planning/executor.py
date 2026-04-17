@@ -26,6 +26,7 @@ _RUN_TOOLS = frozenset({
     "run_bill_savings",
     "run_bess",
     "run_buildability",
+    "run_optimization",
 })
 
 # Keys to strip from tool results before session storage, keyed by tool name.
@@ -35,6 +36,7 @@ _RUN_TOOLS = frozenset({
 # synthesize a response for the user.
 _LARGE_RESULT_KEYS: dict[str, frozenset[str]] = {
     "get_lmp_prices": frozenset({"prices", "timestamps"}),
+    "run_optimization": frozenset({"sweep_results", "bess_sweep_results"}),
 }
 
 

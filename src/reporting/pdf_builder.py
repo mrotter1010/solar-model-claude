@@ -31,6 +31,7 @@ from src.bess.report_section import (
     build_ftm_optimization_summary_rows,
     build_ftm_summary_rows,
 )
+from src.optimization.report_section import build_optimization_summary_rows
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -283,14 +284,18 @@ def build_pdf(
     bess_sizing: Optional[dict] = None,
     ftm_economics: Optional[dict] = None,
     lmp_summary: Optional[dict] = None,
+    optimization_data: Optional[dict] = None,
+    opt_heatmap_path: Optional[Path] = None,
+    opt_comparison_path: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Build a solar production analysis PDF report (3-5 pages).
+    """Build a solar production analysis PDF report (3-6 pages).
 
     Page 1: Cover with title, subtitle, date, and site summary tables.
     Page 2: Narrative sections (overview, resource, production) and monthly chart.
     Page 3: Loss analysis narrative and waterfall chart.
     Page 4 (optional): Bill savings analysis with comparison chart.
     Page 5 (optional): Battery storage analysis with heatmap and dispatch profile.
+    Page 6 (optional): Layout optimization results with charts.
 
     Args:
         output_path: File path for the output PDF.
@@ -307,6 +312,10 @@ def build_pdf(
         bess_sizing: Optional dict from summary["bess_sizing"] for optimization layout.
         ftm_economics: Optional dict from summary["ftm_economics"] for FTM revenue display.
         lmp_summary: Optional dict from summary["lmp"] for FTM pricing zone display.
+        optimization_data: Optional dict from summary["optimization"] for layout
+            optimization results page.
+        opt_heatmap_path: Optional path to optimization heatmap PNG.
+        opt_comparison_path: Optional path to winner comparison chart PNG.
 
     Returns:
         The output_path on success, or None on failure.
@@ -526,6 +535,67 @@ def build_pdf(
                     str(bess_dispatch_chart_path),
                     width=chart_width,
                     height=bess_chart_height,
+                ))
+
+        # === Layout Optimization Results (optional) ===
+        if optimization_data is not None:
+            story.append(PageBreak())
+            story.append(Paragraph(
+                "Layout Optimization Results", styles["section_header"],
+            ))
+            story.append(Spacer(1, 0.1 * inch))
+
+            usable_width = PAGE_WIDTH - 2 * MARGIN
+            opt_col_widths = [usable_width * 0.55, usable_width * 0.45]
+
+            opt_rows = build_optimization_summary_rows(optimization_data)
+
+            opt_style = TableStyle([
+                ("FONTNAME", (0, 0), (-1, 0), FONT_HEADER),
+                ("FONTSIZE", (0, 0), (-1, -1), SIZE_TABLE),
+                ("FONTNAME", (0, 1), (-1, -1), FONT_BODY),
+                ("BACKGROUND", (0, 0), (-1, 0), LIGHT_GREY),
+                ("GRID", (0, 0), (-1, -1), 0.5, MED_GREY),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ])
+            for i in range(2, len(opt_rows), 2):
+                opt_style.add(
+                    "BACKGROUND", (0, i), (-1, i),
+                    colors.Color(0.97, 0.97, 0.97),
+                )
+
+            opt_table = Table(opt_rows, colWidths=opt_col_widths)
+            opt_table.setStyle(opt_style)
+            story.append(opt_table)
+
+            # Optimization charts (below table, same page or overflow)
+            opt_chart_width = PAGE_WIDTH - 2 * MARGIN
+            opt_chart_height = opt_chart_width * 0.5
+
+            if (
+                opt_heatmap_path is not None
+                and opt_heatmap_path.exists()
+            ):
+                story.append(Spacer(1, 0.15 * inch))
+                story.append(Image(
+                    str(opt_heatmap_path),
+                    width=opt_chart_width,
+                    height=opt_chart_height,
+                ))
+
+            if (
+                opt_comparison_path is not None
+                and opt_comparison_path.exists()
+            ):
+                story.append(Spacer(1, 0.15 * inch))
+                story.append(Image(
+                    str(opt_comparison_path),
+                    width=opt_chart_width,
+                    height=opt_chart_height,
                 ))
 
         # Two-pass build for accurate "Page X of Y" footers.

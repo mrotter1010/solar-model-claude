@@ -13,6 +13,10 @@ from src.bess.report_section import (
     generate_dispatch_profile_chart,
     generate_heatmap_chart,
 )
+from src.optimization.chart_builder import (
+    build_optimization_heatmap,
+    build_winner_comparison_chart,
+)
 from src.reporting.chart_builder import (
     generate_loss_waterfall_chart,
     generate_monthly_production_chart,
@@ -140,6 +144,38 @@ def generate_report(
         lmp_summary = (
             summary.get("lmp") if summary is not None else None
         )
+        optimization_data = (
+            summary.get("optimization") if summary is not None else None
+        )
+
+        # Generate optimization charts if optimization data is available
+        opt_heatmap_path = None
+        opt_comparison_path = None
+
+        if optimization_data is not None:
+            opt_mode = optimization_data.get("mode", "production")
+
+            # Heatmap (LCOE/NPV/solar_bess modes only)
+            sweep_key = (
+                "bess_sweep_results"
+                if opt_mode == "solar_bess"
+                else "sweep_results"
+            )
+            sweep_results = optimization_data.get(sweep_key, [])
+            opt_winners = optimization_data.get("winners", {})
+
+            opt_heatmap_path = build_optimization_heatmap(
+                sweep_results, opt_winners, opt_mode,
+                figures_dir / "optimization_heatmap.png",
+            )
+
+            # Winner comparison bar chart (all modes)
+            opt_comparison_path = build_winner_comparison_chart(
+                opt_winners, opt_mode,
+                figures_dir / "optimization_comparison.png",
+            )
+
+            logger.info("Generated optimization charts")
 
         result = build_pdf(
             output_path=pdf_path,
@@ -153,6 +189,9 @@ def generate_report(
             bess_sizing=bess_sizing,
             ftm_economics=ftm_economics,
             lmp_summary=lmp_summary,
+            optimization_data=optimization_data,
+            opt_heatmap_path=opt_heatmap_path,
+            opt_comparison_path=opt_comparison_path,
         )
 
         if result is None:

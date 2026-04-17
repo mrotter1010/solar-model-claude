@@ -321,9 +321,9 @@ class TestSolcastSkipsBiasCorrection:
 class TestBiasCorrectionInSummary:
     """Test that bias correction metadata flows through to pipeline summaries."""
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.0)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.0)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_summary_contains_bias_metadata(
@@ -361,9 +361,9 @@ class TestBiasCorrectionInSummary:
         assert "mean_ghi_correction_factor" in summary
         assert "mean_dni_correction_factor" in summary
 
-    @patch("src.pipeline.get_model_version", return_value="v1")
-    @patch("src.pipeline.predict_correction", return_value=0.0)
-    @patch("src.pipeline.compute_weather_features")
+    @patch("src.optimization.clipping_correction.get_model_version", return_value="v1")
+    @patch("src.optimization.clipping_correction.predict_correction", return_value=0.0)
+    @patch("src.optimization.clipping_correction.compute_weather_features")
     @patch("src.pipeline.run_climate_data_pipeline")
     @patch("src.pysam_integration.simulator.PySAMSimulator.execute_simulation")
     def test_solcast_summary_has_no_bias_keys(
