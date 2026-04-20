@@ -92,6 +92,21 @@ def run_buildability_analysis(
     polygon = get_analysis_polygon(config)
     logger.info(f"Analysis polygon: {polygon.geom_type}, area={polygon.area:.6f} sq deg")
 
+    # Determine result lat/lon: use polygon centroid for KMZ inputs
+    # (the caller may not know the exact coordinates), otherwise use
+    # the config lat/lon which is the point-buffer center.
+    if config.kmz_file_path is not None:
+        centroid = polygon.centroid
+        result_lat = centroid.y
+        result_lon = centroid.x
+        logger.info(
+            f"Using polygon centroid ({result_lat:.6f}, {result_lon:.6f}) "
+            f"from KMZ file"
+        )
+    else:
+        result_lat = config.latitude
+        result_lon = config.longitude
+
     # 2. Fetch NLCD land cover
     nlcd_array, nlcd_meta = fetch_nlcd(polygon)
 
@@ -147,8 +162,8 @@ def run_buildability_analysis(
     dem_meta_serializable = _make_serializable(dem_meta)
 
     result = BuildabilityResult(
-        latitude=config.latitude,
-        longitude=config.longitude,
+        latitude=result_lat,
+        longitude=result_lon,
         radius_km=config.radius_km,
         kmz_file_path=config.kmz_file_path,
         polygon_wkt=polygon.wkt,

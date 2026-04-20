@@ -7,6 +7,7 @@ from src.api.schemas.common import (
     BESSEconomics,
     BillConfig,
     BuildabilityConfig,
+    BuildabilityLocation,
     FTMConfig,
     Location,
     Losses,
@@ -91,14 +92,33 @@ class BESSRequest(BaseModel):
 class BuildabilityRequest(BaseModel):
     """Request body for a buildable land assessment.
 
-    Only requires site location (lat/lon). Buildability configuration
-    (KMZ file path or analysis radius) is optional — if omitted, the
-    analyzer defaults to a 1.0 km radius buffer around the site.
+    Site name is required. Latitude and longitude are optional when a
+    KMZ/KML file is provided — the analyzer computes the polygon
+    centroid automatically. When no KMZ/KML is provided, lat/lon are
+    required (for radius-based analysis).
     """
 
-    site: Location
+    site: BuildabilityLocation
     buildability: BuildabilityConfig | None = None
     include_maps: bool = False
+
+    @model_validator(mode="after")
+    def validate_location_or_kmz(self) -> "BuildabilityRequest":
+        """Require lat/lon when no KMZ/KML file is provided."""
+        has_coords = (
+            self.site.latitude is not None and self.site.longitude is not None
+        )
+        has_kmz = (
+            self.buildability is not None
+            and self.buildability.kmz_file_path is not None
+        )
+        if not has_coords and not has_kmz:
+            raise ValueError(
+                "latitude and longitude are required when no KMZ/KML "
+                "file is provided. Either provide site coordinates or "
+                "upload a KMZ/KML boundary file."
+            )
+        return self
 
 
 class RateBuildRequest(BaseModel):

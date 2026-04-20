@@ -17,7 +17,9 @@ from src.optimization.defaults import (
     DEFAULT_MODULE_POWER_W,
 )
 from src.optimization.solar_optimizer import optimize_solar
+from src.pipeline import SolarModelingPipeline, run_climate_data_pipeline
 from src.pysam_integration.cec_database import CECDatabase
+from src.reporting.report_generator import generate_report
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -30,21 +32,28 @@ def _sanitize_run_name(run_name: str) -> str:
     return re.sub(r"[\s/\"']+", "_", run_name)
 
 
-def _resolve_buildable_acres(request: OptimizationRequest) -> float:
-    """Resolve buildable_acres from request or buildability run lookup.
+def _resolve_buildability_inputs(
+    request: OptimizationRequest,
+) -> dict[str, float]:
+    """Resolve buildable_acres and optionally lat/lon from buildability run.
+
+    When buildability_run_id is provided, reads the buildability results
+    JSON. If the request is missing latitude/longitude, also extracts
+    those from the buildability result (the centroid computed during
+    the buildability analysis).
 
     Args:
         request: Validated optimization request.
 
     Returns:
-        Buildable acreage value.
+        Dict with 'buildable_acres' and optionally 'latitude', 'longitude'.
 
     Raises:
-        HTTPException: If buildability_run_id results file not found or
-            buildable_acres field missing from the results.
+        HTTPException: If buildability_run_id results file not found,
+            unreadable, or missing required fields.
     """
     if request.buildable_acres is not None:
-        return request.buildable_acres
+        return {"buildable_acres": request.buildable_acres}
 
     run_id = request.buildability_run_id
     results_path = Path("outputs/api") / run_id / "results.json"
@@ -76,7 +85,16 @@ def _resolve_buildable_acres(request: OptimizationRequest) -> float:
                 "'buildable_acres'. Was this a buildability analysis?"
             ),
         )
-    return float(acres)
+
+    result: dict[str, float] = {"buildable_acres": float(acres)}
+
+    # Extract lat/lon from buildability result when not provided in request
+    if request.latitude is None and "latitude" in data:
+        result["latitude"] = float(data["latitude"])
+    if request.longitude is None and "longitude" in data:
+        result["longitude"] = float(data["longitude"])
+
+    return result
 
 
 def _resolve_module_specs(
@@ -234,6 +252,38 @@ def _strip_sweep_results(result: dict) -> dict:
     return slim
 
 
+def _pick_report_winner(result: dict, report_winner: str) -> dict:
+    """Select the winner configuration to use for the PDF report.
+
+    Args:
+        result: Raw dict from optimize_solar or optimize_solar_bess.
+        report_winner: User preference — "auto", "max_production",
+            "max_yield", "lcoe", or "npv".
+
+    Returns:
+        Winner sweep-point dict with gcr, mw_dc, mw_ac, etc.
+    """
+    if report_winner == "auto":
+        mode = result["mode"]
+        if mode == "solar_bess":
+            return result["bess_winner_detail"]["solar"]
+        elif mode == "npv":
+            return result["winners"]["npv"]
+        elif mode == "lcoe":
+            return result["winners"]["lcoe"]
+        else:
+            return result["winners"]["max_production"]
+
+    winner = result["winners"].get(report_winner)
+    if winner is None:
+        logger.warning(
+            f"Requested report_winner '{report_winner}' not available "
+            f"in mode '{result['mode']}' — falling back to max_production"
+        )
+        winner = result["winners"]["max_production"]
+    return winner
+
+
 @router.post("/optimize", response_model=OptimizationResponse)
 def run_optimization(request: OptimizationRequest) -> OptimizationResponse:
     """Run a solar layout optimization sweep.
@@ -246,7 +296,31 @@ def run_optimization(request: OptimizationRequest) -> OptimizationResponse:
     """
     try:
         # --- Resolve inputs ---
-        buildable_acres = _resolve_buildable_acres(request)
+        buildability_inputs = _resolve_buildability_inputs(request)
+        buildable_acres = buildability_inputs["buildable_acres"]
+
+        # Backfill lat/lon from buildability result when not in request
+        if request.latitude is None:
+            if "latitude" not in buildability_inputs:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "latitude is required and was not found in the "
+                        "buildability result either."
+                    ),
+                )
+            request.latitude = buildability_inputs["latitude"]
+        if request.longitude is None:
+            if "longitude" not in buildability_inputs:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "longitude is required and was not found in the "
+                        "buildability result either."
+                    ),
+                )
+            request.longitude = buildability_inputs["longitude"]
+
         module_name, module_power_w, module_area_m2 = _resolve_module_specs(
             request.module_name
         )
@@ -255,6 +329,22 @@ def run_optimization(request: OptimizationRequest) -> OptimizationResponse:
         base_config = _build_template_site_config(
             request, module_name, inverter_name
         )
+
+        # --- Fetch weather data (once, reused by all sweep points) ---
+        logger.info(
+            f"Fetching weather data for optimization at "
+            f"({request.latitude}, {request.longitude})"
+        )
+        run_climate_data_pipeline([base_config])
+        if base_config.weather_file_path is None:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Failed to fetch weather data for "
+                    f"({request.latitude}, {request.longitude}). "
+                    "NSRDB may be temporarily unavailable."
+                ),
+            )
 
         output_dir = Path("outputs/api") / base_config.run_name
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -288,6 +378,47 @@ def run_optimization(request: OptimizationRequest) -> OptimizationResponse:
             response.model_dump_json(indent=2), encoding="utf-8"
         )
         logger.info(f"Optimization results saved to {results_path}")
+
+        # --- Generate PDF report for the selected winner ---
+        try:
+            winner = _pick_report_winner(result, request.report_winner)
+            winner_config = base_config.model_copy(update={
+                "gcr": winner["gcr"],
+                "dc_size_mw": winner["mw_dc"],
+                "ac_installed_mw": winner["mw_ac"],
+                "ac_poi_mw": winner["mw_ac"],
+            })
+
+            pipeline = SolarModelingPipeline(output_dir=output_dir)
+            pysam_results = pipeline.run_from_configs(
+                [winner_config], skip_climate=True,
+            )
+
+            if pysam_results["successful"] > 0:
+                loss_data = pysam_results["summaries"][0].get("loss_data")
+                if loss_data:
+                    reports_dir = output_dir / "reports"
+                    reports_dir.mkdir(parents=True, exist_ok=True)
+                    generate_report(
+                        site_config=winner_config.model_dump(),
+                        loss_data=loss_data,
+                        output_dir=reports_dir,
+                        summary={"optimization": result},
+                    )
+                    logger.info("Optimization PDF report generated")
+                else:
+                    logger.warning(
+                        "Winner PySAM run succeeded but loss_data is empty "
+                        "— skipping report"
+                    )
+            else:
+                logger.warning(
+                    "Winner PySAM run failed — skipping report generation"
+                )
+        except Exception as report_exc:
+            logger.warning(
+                f"Optimization report generation failed: {report_exc}"
+            )
 
         return response
 

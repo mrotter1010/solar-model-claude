@@ -55,10 +55,10 @@ class TestOptimizationToolDefinition:
         assert tool["type"] == "function"
 
     def test_required_fields(self) -> None:
-        """latitude and longitude are the only required fields."""
+        """No fields are unconditionally required (lat/lon auto-populated from buildability_run_id)."""
         tool = _find_tool("run_optimization")
         params = tool["function"]["parameters"]
-        assert set(params["required"]) == {"latitude", "longitude"}
+        assert params["required"] == []
 
     def test_has_location_properties(self) -> None:
         """Schema includes latitude and longitude as numbers."""

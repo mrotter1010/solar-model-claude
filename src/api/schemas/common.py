@@ -86,6 +86,22 @@ class ResourceOverrides(BaseModel):
     ground_truth_file: str | None = None
 
 
+class BuildabilityLocation(BaseModel):
+    """Site location for buildability analysis.
+
+    Unlike Location, latitude and longitude are optional here because
+    the buildability analyzer can compute the centroid from a KML/KMZ
+    polygon boundary. When a KML/KMZ is provided without coordinates,
+    the analyzer auto-populates lat/lon from the polygon centroid.
+    """
+
+    name: str
+    customer: str = "API"
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    run_name: str | None = None
+
+
 class BuildabilityConfig(BaseModel):
     """Buildable land assessment configuration."""
 

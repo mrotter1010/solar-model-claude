@@ -5,7 +5,7 @@ import { markdownComponents } from './MarkdownRenderers';
 import { CONFIG } from '../config.js';
 import StepsList from './StepsList';
 
-const RUN_TOOLS = ['run_production', 'run_bill_savings', 'run_bess', 'run_buildability'];
+const RUN_TOOLS = ['run_production', 'run_bill_savings', 'run_bess', 'run_buildability', 'run_optimization'];
 const TOOLS_WITH_TIMESERIES = ['run_production', 'run_bill_savings', 'run_bess'];
 
 function formatToolName(name) {

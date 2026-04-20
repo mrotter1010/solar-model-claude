@@ -1,6 +1,10 @@
 """Request and response schemas for the layout optimization endpoint."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
+
+_VALID_REPORT_WINNERS = ("auto", "max_production", "max_yield", "lcoe", "npv")
 
 
 class OptimizationRequest(BaseModel):
@@ -16,9 +20,22 @@ class OptimizationRequest(BaseModel):
     - solar_bess: bess_enabled=True (requires NPV-level economics)
     """
 
-    # Location
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+    # Location (optional when buildability_run_id is provided —
+    # extracted from the buildability result at runtime)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    # Report generation
+    report_winner: Literal[
+        "auto", "max_production", "max_yield", "lcoe", "npv"
+    ] = Field(
+        default="auto",
+        description=(
+            "Which winner configuration to generate the detailed PDF "
+            "report for. 'auto' picks the best available winner based "
+            "on mode (NPV > LCOE > max_production)."
+        ),
+    )
 
     # Land area (exactly one required)
     buildable_acres: float | None = Field(default=None, gt=0)
@@ -65,6 +82,22 @@ class OptimizationRequest(BaseModel):
     lmp_prices: list[float] | None = None
     lmp_iso: str | None = None
     lmp_zone: str | None = None
+
+    @model_validator(mode="after")
+    def validate_location_source(self) -> "OptimizationRequest":
+        """Require lat/lon unless buildability_run_id is provided.
+
+        When buildability_run_id is given, lat/lon are auto-populated
+        from the buildability result at runtime.
+        """
+        has_coords = self.latitude is not None and self.longitude is not None
+        has_run_id = self.buildability_run_id is not None
+        if not has_coords and not has_run_id:
+            raise ValueError(
+                "latitude and longitude are required unless "
+                "buildability_run_id is provided."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_buildable_acres_source(self) -> "OptimizationRequest":

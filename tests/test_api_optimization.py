@@ -10,6 +10,7 @@ PySAM. Tests cover:
 """
 
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -619,9 +620,8 @@ class TestResponseStructure:
             assert persisted["mode"] == "production"
             assert persisted["run_id"] == run_id
         finally:
-            # Clean up
-            results_path.unlink(missing_ok=True)
-            results_path.parent.rmdir()
+            # Clean up — report generation creates subdirs (reports/, figures/)
+            shutil.rmtree(results_path.parent, ignore_errors=True)
 
     @patch("src.api.routes.optimization.optimize_solar")
     def test_bess_fields_none_for_solar_only(

@@ -997,10 +997,24 @@ TOOL_DEFINITIONS: list[dict] = [
                         "type": "object",
                         "properties": {
                             "name": {"type": "string"},
-                            "latitude": {"type": "number"},
-                            "longitude": {"type": "number"},
+                            "latitude": {
+                                "type": "number",
+                                "description": (
+                                    "Site latitude. Optional when a KMZ/KML "
+                                    "file is provided — auto-populated from "
+                                    "the polygon centroid."
+                                ),
+                            },
+                            "longitude": {
+                                "type": "number",
+                                "description": (
+                                    "Site longitude. Optional when a KMZ/KML "
+                                    "file is provided — auto-populated from "
+                                    "the polygon centroid."
+                                ),
+                            },
                         },
-                        "required": ["name", "latitude", "longitude"],
+                        "required": ["name"],
                     },
                     "buildability": {
                         "type": "object",
@@ -1114,11 +1128,19 @@ TOOL_DEFINITIONS: list[dict] = [
                 "properties": {
                     "latitude": {
                         "type": "number",
-                        "description": "Site latitude (-90 to 90)",
+                        "description": (
+                            "Site latitude (-90 to 90). Optional when "
+                            "buildability_run_id is provided — auto-populated "
+                            "from the buildability result."
+                        ),
                     },
                     "longitude": {
                         "type": "number",
-                        "description": "Site longitude (-180 to 180)",
+                        "description": (
+                            "Site longitude (-180 to 180). Optional when "
+                            "buildability_run_id is provided — auto-populated "
+                            "from the buildability result."
+                        ),
                     },
                     "buildable_acres": {
                         "type": "number",
@@ -1131,8 +1153,10 @@ TOOL_DEFINITIONS: list[dict] = [
                         "type": "string",
                         "description": (
                             "Run ID from a previous buildability analysis to "
-                            "look up buildable acres. Mutually exclusive with "
-                            "buildable_acres."
+                            "look up buildable acres and site coordinates. "
+                            "Mutually exclusive with buildable_acres. When "
+                            "used, latitude and longitude are auto-populated "
+                            "from the buildability result."
                         ),
                     },
                     "racking": {
@@ -1331,8 +1355,23 @@ TOOL_DEFINITIONS: list[dict] = [
                             "Pricing zone for FTM dispatch"
                         ),
                     },
+                    "report_winner": {
+                        "type": "string",
+                        "enum": [
+                            "auto",
+                            "max_production",
+                            "max_yield",
+                            "lcoe",
+                            "npv",
+                        ],
+                        "description": (
+                            "Which winner to generate the detailed PDF "
+                            "report for. 'auto' picks the best available "
+                            "(NPV > LCOE > max_production). Default: 'auto'"
+                        ),
+                    },
                 },
-                "required": ["latitude", "longitude"],
+                "required": [],
             },
         },
     },

@@ -318,6 +318,10 @@ def buildability_request_to_site_config(
     All system design fields are filled with dummy placeholder values to
     satisfy SiteConfig validation (see _BUILDABILITY_DUMMY_SYSTEM).
 
+    When a KMZ/KML file is provided without lat/lon, placeholder
+    coordinates (0.0, 0.0) are used — the buildability analyzer will
+    override them with the polygon centroid.
+
     Args:
         request: Validated BuildabilityRequest with site location and
             optional buildability configuration.
@@ -338,14 +342,19 @@ def buildability_request_to_site_config(
         kmz_file_path = request.buildability.kmz_file_path
         analysis_radius_km = request.buildability.analysis_radius_km
 
+    # Use 0.0 placeholders when lat/lon not provided (KMZ centroid
+    # will override in the analyzer)
+    latitude = site.latitude if site.latitude is not None else 0.0
+    longitude = site.longitude if site.longitude is not None else 0.0
+
     return SiteConfig(
         # Project info
         run_name=run_name,
         site_name=site.name,
         customer=site.customer,
         # Location
-        latitude=site.latitude,
-        longitude=site.longitude,
+        latitude=latitude,
+        longitude=longitude,
         # Dummy system design (not used by buildability)
         **_BUILDABILITY_DUMMY_SYSTEM,
         # Buildability enabled

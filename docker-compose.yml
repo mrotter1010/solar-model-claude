@@ -1,6 +1,8 @@
 services:
   api:
     build: .
+    ports:
+      - "8000:8000"
     volumes:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
@@ -18,6 +20,8 @@ services:
     build:
       context: .
       dockerfile: orchestrator/Dockerfile
+    ports:
+      - "8001:8001"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5}

@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 from src.api.adapter import buildability_request_to_site_config
 from src.api.app import create_app
 from src.api.runner import extract_buildability_response
-from src.api.schemas.common import BuildabilityConfig, Location
+from src.api.schemas.common import BuildabilityConfig, BuildabilityLocation, Location
 from src.api.schemas.requests import BuildabilityRequest
 from src.buildability.models import BuildabilityResult
 
@@ -119,7 +119,7 @@ class TestBuildabilityAdapter:
     def test_buildable_land_assessment_true(self) -> None:
         """Buildability request sets buildable_land_assessment=True."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=33.45, longitude=-112.07),
+            site=BuildabilityLocation(name="TestSite", latitude=33.45, longitude=-112.07),
         )
         config = buildability_request_to_site_config(request)
         assert config.buildable_land_assessment is True
@@ -127,7 +127,7 @@ class TestBuildabilityAdapter:
     def test_dummy_system_values_are_valid(self) -> None:
         """Dummy system values produce a valid SiteConfig (no validation errors)."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=33.45, longitude=-112.07),
+            site=BuildabilityLocation(name="TestSite", latitude=33.45, longitude=-112.07),
         )
         config = buildability_request_to_site_config(request)
 
@@ -143,7 +143,7 @@ class TestBuildabilityAdapter:
     def test_other_features_disabled(self) -> None:
         """Bill, BESS, and report are disabled for buildability."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=33.45, longitude=-112.07),
+            site=BuildabilityLocation(name="TestSite", latitude=33.45, longitude=-112.07),
         )
         config = buildability_request_to_site_config(request)
 
@@ -155,7 +155,7 @@ class TestBuildabilityAdapter:
     def test_location_mapped(self) -> None:
         """Latitude and longitude flow to SiteConfig."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=40.0, longitude=-75.0),
+            site=BuildabilityLocation(name="TestSite", latitude=40.0, longitude=-75.0),
         )
         config = buildability_request_to_site_config(request)
         assert config.latitude == 40.0
@@ -164,7 +164,7 @@ class TestBuildabilityAdapter:
     def test_radius_km_mapped(self) -> None:
         """analysis_radius_km from BuildabilityConfig flows to SiteConfig."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=33.45, longitude=-112.07),
+            site=BuildabilityLocation(name="TestSite", latitude=33.45, longitude=-112.07),
             buildability=BuildabilityConfig(analysis_radius_km=2.5),
         )
         config = buildability_request_to_site_config(request)
@@ -173,7 +173,7 @@ class TestBuildabilityAdapter:
     def test_kmz_file_path_mapped(self) -> None:
         """kmz_file_path from BuildabilityConfig flows to SiteConfig."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=33.45, longitude=-112.07),
+            site=BuildabilityLocation(name="TestSite", latitude=33.45, longitude=-112.07),
             buildability=BuildabilityConfig(kmz_file_path="/tmp/boundary.kmz"),
         )
         config = buildability_request_to_site_config(request)
@@ -182,7 +182,7 @@ class TestBuildabilityAdapter:
     def test_no_buildability_config_uses_defaults(self) -> None:
         """No buildability config → both kmz and radius are None."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=33.45, longitude=-112.07),
+            site=BuildabilityLocation(name="TestSite", latitude=33.45, longitude=-112.07),
         )
         config = buildability_request_to_site_config(request)
         assert config.kmz_file_path is None
@@ -191,7 +191,7 @@ class TestBuildabilityAdapter:
     def test_run_name_auto_generated(self) -> None:
         """run_name is auto-generated when not provided."""
         request = BuildabilityRequest(
-            site=Location(name="TestSite", latitude=33.45, longitude=-112.07),
+            site=BuildabilityLocation(name="TestSite", latitude=33.45, longitude=-112.07),
         )
         config = buildability_request_to_site_config(request)
         assert config.run_name.startswith("TestSite_")
@@ -199,7 +199,7 @@ class TestBuildabilityAdapter:
     def test_run_name_preserved(self) -> None:
         """Explicit run_name is preserved."""
         request = BuildabilityRequest(
-            site=Location(
+            site=BuildabilityLocation(
                 name="TestSite",
                 latitude=33.45,
                 longitude=-112.07,
