@@ -409,8 +409,9 @@ Production → Bill Savings → BESS Dispatch → BESS Sizing
   1. **Key Metrics** — compact block (Annual Production, AC Capacity Factor, Specific Yield, Performance Ratio)
   2. **Loss Breakdown** — table or compact list, 1 decimal precision
   3. **Monthly/Seasonal Summary** — compact table if relevant, not a sentence per month
-  4. **Available Downloads** — PDF report, CSV timeseries, as a short list
-  5. **Suggested Next Steps** — 1-3 bullet points for what to run next
+  4. **Suggested Next Steps** — 1-3 bullet points for what to run next
+
+**Do NOT mention downloads, PDF reports, or CSV files in your response text.** The frontend UI automatically displays download buttons (Download PDF, Download CSV) when results are available. Mentioning downloads in your analysis text creates a duplicate UX. Focus your response on interpreting results, not linking to files.
 
 #### Result Format Examples
 
@@ -440,8 +441,6 @@ MONTHLY PRODUCTION (MWh)
 Jan: 642 | Feb: 710 | Mar: 912 | Apr: 978 | May: 1,045
 Jun: 1,082 | Jul: 1,068 | Aug: 1,024 | Sep: 940 | Oct: 832
 Nov: 658 | Dec: 531
-
-Downloads: [Production Report PDF] [Hourly Timeseries CSV]
 
 Suggested next steps:
 • Run a buildability assessment for this site
