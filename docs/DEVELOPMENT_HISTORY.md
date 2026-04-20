@@ -34,6 +34,7 @@ Milestone-based development log for solar-model-claude. Moved from README.md dur
 | M22a | Orchestrator UX | Done | Orchestrator UX polish, smart file handling |
 | M23 | Beta Deployment | Done | Environment config, invite code auth, access gate, Nginx reverse proxy, Docker production config, deploy script |
 | M24 | Chat Persistence | Done | Anonymous user identity, conversation + message DB persistence (TimescaleDB), conversation CRUD endpoints, sidebar UI, LLM title generation, session_id→conversation_id rename. Bug fixes: tool-chain message filtering, LMP result summarization, synthesis instruction persistence. 1,983 tests. |
+| M25 | Solar Layout Optimization | Done | GCR × DC/AC ratio sweep engine, three optimization modes (production/LCOE/NPV), solar+BESS joint optimization, capacity-from-acreage sizing, economics engine, PDF report with heatmap + comparison charts, KML centroid auto-extraction, orchestrator tool with auto-chaining. 2,200 tests. |
 
 ## Roadmap
 
@@ -42,6 +43,47 @@ Milestone-based development log for solar-model-claude. Moved from README.md dur
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
 | M14d | Detailed Degradation | Rainflow counting, calendar aging, C-rate effects |
+
+## M25: Solar Layout Optimization
+
+**Commits:** `c2c786c` (core), `395d039` (M25 final), `9d2984a` (nginx/auth fix), `25a6a5f` (prompt cleanup)
+
+### Core Features
+
+- **Capacity-from-acreage sizing** — Converts buildable acres → MW_DC based on GCR, module dimensions, utilization factor (default 75%), and land intensity lookup. Automatically sizes the system for each GCR in the sweep grid.
+- **Three-mode solar optimizer** — Sweeps 7 GCR × 10 DC/AC ratio = 70 combinations per run. Returns multiple winner configurations:
+  - **Production mode** (default): max annual energy (MWh) and max specific yield (kWh/kWp)
+  - **LCOE mode**: min levelized cost of energy ($/MWh) with ITC, degradation, and O&M
+  - **NPV mode**: max net present value with energy revenue, escalation, and tax credits
+- **Solar+BESS joint optimization** — Extends the 70-point solar sweep with 10 BESS power/duration combinations per valid design = 700 total configurations. Supports BTM (rate-based bill savings) and FTM (LMP-based wholesale revenue) dispatch modes.
+- **Economics engine** — LCOE, NPV, IRR, and simple payback calculations with ITC (default 30%), annual degradation, O&M escalation, and discount rate. Shared across solar-only and solar+BESS modes.
+- **Shared subhourly clipping correction** — Extracted the ML clipping correction from `pipeline.py` into `src/optimization/clipping_correction.py` for reuse by the optimizer without duplicating pipeline logic.
+
+### API & Orchestrator
+
+- **REST endpoint** — `POST /analyses/optimize` with full parameter schema (GCR/DCAC ranges, economics, BESS config, report_winner selection).
+- **Orchestrator tool** — `run_optimization` with auto-chaining: KML upload → buildability → optimization in a single plan. `buildability_run_id` auto-populates latitude, longitude, and buildable_acres.
+- **PDF report** — Optimization summary table + LCOE/NPV heatmap + winner configuration comparison chart. `report_winner` parameter selects which winner gets the detailed report (auto/max_production/max_yield/lcoe/npv).
+
+### Infrastructure & UX
+
+- **KML centroid auto-extraction** — `BuildabilityLocation` makes lat/lon optional. When a KML/KMZ is provided without coordinates, the buildability analyzer computes the polygon centroid automatically.
+- **Market-neutral system prompt** — Removed community solar and C&I-specific framing from the orchestrator system prompt. The platform now presents itself as a general solar feasibility tool.
+- **Nginx proxy timeouts** — Increased `proxy_read_timeout` and `proxy_send_timeout` to 900s (15 min) on all proxy locations to handle long-running optimization sweeps.
+- **Nginx env_file fix** — Added `env_file: .env.production` to the nginx service in `docker-compose.prod.yml` to prevent `VITE_ANALYSIS_API_KEY` from being baked as empty on standalone rebuilds.
+- **Download UX dedup** — Removed "Available Downloads" section from LLM result formatting rules; the frontend `ResultsCard` already shows download buttons.
+
+### Default Configuration
+
+- **Equipment**: LONGi LR5-72HBD-550M (551W bifacial) + Sungrow SG250HX-US [800V]
+- **Economics**: $1,200/kW DC, $20/kW-yr O&M, 7% discount rate, 25-year life, 30% ITC, $340/kWh BESS
+
+### Key Technical Decisions
+
+- **Brute-force sweep over surrogate model** — The 70-point PySAM sweep takes ~37s total. This is fast enough that a surrogate model or Bayesian optimization would add complexity without meaningful speed improvement. Each PySAM run is ~0.5s.
+- **Multiple winners rather than single optimum** — The optimizer returns `max_production`, `max_yield`, `lcoe`, and `npv` winners separately. Different stakeholders care about different metrics, and the "best" design depends on project economics that may change.
+- **Capacity sizing from acreage** — Rather than requiring the user to specify MW_DC, the optimizer calculates it from buildable acres and GCR. This enables the full workflow: upload KML → get buildable acres → sweep designs → pick winner.
+- **Clipping correction extraction** — The subhourly ML correction was tightly coupled to `pipeline.py`. Extracting it into a standalone helper with the same interface allows the optimizer to apply the correction without instantiating the full pipeline.
 
 ## M24: Chat Persistence, Sidebar, Conversation Management
 
@@ -262,6 +304,7 @@ Predicts the percentage of annual AC energy that hourly-resolution PySAM simulat
 | POST | `/analyses/bill-savings` | Run production + bill savings analysis |
 | POST | `/analyses/bess` | Run BESS dispatch or sizing optimization |
 | POST | `/analyses/buildability` | Run buildable land assessment |
+| POST | `/analyses/optimize` | Run solar layout optimization (GCR × DC/AC sweep) |
 | GET | `/analyses/load-types` | List available DOE reference building types |
 | GET | `/analyses/{run_id}/results` | Retrieve saved results JSON |
 | GET | `/analyses/{run_id}/report` | Download PDF report |
@@ -304,6 +347,7 @@ src/
 ├── lmp/                             # LMP data fetching and caching
 ├── bess/                            # BESS dispatch and sizing optimization
 ├── buildability/                    # Land cover and slope analysis
+├── optimization/                   # Layout optimization (GCR × DC/AC sweep, economics)
 ├── database/                        # SQLAlchemy ORM, migrations
 └── utils/                           # Logging, exceptions
 

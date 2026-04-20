@@ -43,6 +43,8 @@ Four Docker services behind Cloudflare SSL:
 
 **BESS Dispatch & Optimization** — LP-based battery dispatch (PuLP/CBC). Behind-the-meter: peak shaving, TOU arbitrage, global optimization with NEM-aware export revenue. Front-of-meter: wholesale LMP-based dispatch via gridstatus (PJM, ERCOT, CAISO). NPV sizing optimization across power/duration combinations.
 
+**Layout Optimization** — Automated GCR × DC/AC ratio sweep to find optimal system design. Three optimization modes: max production, min LCOE, max NPV. Solar+BESS joint optimization with BTM (rate-based) and FTM (LMP-based) dispatch. Capacity-from-acreage sizing, ITC-aware economics, PDF report with heatmap and configuration comparison charts.
+
 ## Local Development
 
 ### Prerequisites
@@ -83,7 +85,7 @@ Production secrets live in `.env.production` on the VPS (never committed). See `
 pytest tests/
 ```
 
-1,983 tests covering config validation, climate clients, PySAM simulation, ML corrections, rate engine, BESS dispatch, buildability analysis, REST API endpoints, LLM orchestrator, and end-to-end integration.
+2,200 tests covering config validation, climate clients, PySAM simulation, ML corrections, rate engine, BESS dispatch, buildability analysis, layout optimization, REST API endpoints, LLM orchestrator, and end-to-end integration.
 
 ## Tech Stack
 
