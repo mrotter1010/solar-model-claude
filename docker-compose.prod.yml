@@ -57,6 +57,8 @@ services:
         max-file: "3"
 
   nginx:
+    env_file:
+      - .env.production
     build:
       context: .
       dockerfile: nginx/Dockerfile
