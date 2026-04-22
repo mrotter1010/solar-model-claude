@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 
 
@@ -174,6 +176,64 @@ class AnalysisAPIClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def run_batch(self, file_path: str) -> dict:
+        """Run batch processing on an uploaded CSV or Excel file.
+
+        Sends the server-side file path as JSON to the batch endpoint.
+        The API reads the file from its own filesystem — the same
+        pattern used by buildability's ``kmz_file_path``.
+
+        Args:
+            file_path: Server-side path to the uploaded batch input file.
+
+        Returns:
+            API response with run_id, summary stats, and download URL.
+
+        Raises:
+            ValueError: On 422 with structured validation errors or
+                string detail (preserves the response body).
+            httpx.HTTPStatusError: On other 4xx/5xx API responses.
+        """
+        resp = await self._client.post(
+            "/analyses/batch/run",
+            json={"file_path": file_path},
+        )
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # Extract structured validation errors from the response body
+            # so the executor (and ultimately the frontend) sees row-level
+            # detail instead of a generic "422 Unprocessable Entity".
+            try:
+                body = exc.response.json()
+            except (json.JSONDecodeError, AttributeError):
+                raise exc
+            detail = body.get("detail")
+            if isinstance(detail, dict) and "errors" in detail:
+                errors = detail["errors"]
+                lines = [
+                    f"Batch validation failed ({len(errors)} "
+                    f"error{'s' if len(errors) != 1 else ''}):",
+                ]
+                for e in errors:
+                    lines.append(
+                        f"  Row {e.get('row', '?')}, "
+                        f"{e.get('column', '?')}: "
+                        f"{e.get('message', 'Unknown error')}"
+                    )
+                warnings = detail.get("warnings", [])
+                if warnings:
+                    lines.append(
+                        f"  ({len(warnings)} warning"
+                        f"{'s' if len(warnings) != 1 else ''} "
+                        f"also detected)"
+                    )
+                raise ValueError("\n".join(lines)) from exc
+            if isinstance(detail, str):
+                raise ValueError(detail) from exc
+            raise
+        return resp.json()
+
     # ------------------------------------------------------------------
     # Result retrieval endpoints
     # ------------------------------------------------------------------
@@ -260,6 +320,10 @@ class AnalysisAPIClient:
                 lon=arguments.get("lon"),
                 market=arguments.get("market"),
                 year=arguments.get("year"),
+            )
+        elif tool_name == "run_batch":
+            return await self.run_batch(
+                file_path=arguments["file_path"],
             )
         else:
             raise ValueError(f"Unknown tool: {tool_name}")

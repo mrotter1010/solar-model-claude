@@ -153,13 +153,20 @@ class TestUnknownDetection:
 
     @pytest.mark.parametrize(
         "filename",
-        ["document.pdf", "spreadsheet.xlsx", "readme.docx", "image.png", "noext"],
+        ["document.pdf", "readme.docx", "image.png", "noext"],
     )
     def test_unsupported_extensions(self, filename: str) -> None:
         result = detect_file_type(filename, b"some content")
         assert result.detected_type == "unknown"
         assert result.confidence == "low"
         assert "not automatically recognized" in result.message
+
+    @pytest.mark.parametrize("filename", ["spreadsheet.xlsx", "data.xls"])
+    def test_excel_without_batch_headers_is_unknown(self, filename: str) -> None:
+        result = detect_file_type(filename, b"some content")
+        assert result.detected_type == "unknown"
+        assert result.confidence == "low"
+        assert "does not match batch input format" in result.message
 
 
 # ---------------------------------------------------------------------------

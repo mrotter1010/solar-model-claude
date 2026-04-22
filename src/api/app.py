@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.auth import APIKeyMiddleware
 from src.api.routes.analyses import router as analyses_router
+from src.api.routes.batch import router as batch_router
 from src.api.routes.equipment import router as equipment_router
 from src.api.routes.lmp import router as lmp_router
 from src.api.routes.optimization import router as optimization_router
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": "1.0.0"}
 
     app.include_router(analyses_router)
+    app.include_router(batch_router)
     app.include_router(equipment_router)
     app.include_router(lmp_router)
     app.include_router(optimization_router)

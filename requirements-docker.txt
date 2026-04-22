@@ -48,6 +48,9 @@ gridstatus>=0.27
 # Logging
 colorlog>=6.7,<7
 
+# Excel workbook (batch processing)
+openpyxl>=3.1,<4
+
 # Cloud / legacy climate (ERA5)
 gcsfs>=2023.9
 zarr>=2.16,<3

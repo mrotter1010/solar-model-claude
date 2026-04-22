@@ -36,6 +36,7 @@ _DETECTED_TYPE_MAP = {
     "kmz": ("kmz", "kmz"),
     "load_profile": ("load-profile", "load-profiles"),
     "rate_schedule": ("rate", "rates"),
+    "batch_input": ("batch", "batch"),
 }
 
 
@@ -89,6 +90,12 @@ async def upload_file_auto(file: UploadFile) -> FileUploadResponse:
         dest_path = dest_dir / filename
         dest_path.write_bytes(content)
 
+        # Batch input files need text extraction so the orchestrator LLM
+        # can see the CSV/Excel contents when building a batch plan.
+        extracted = None
+        if result.detected_type == "batch_input":
+            extracted = extract_text(filename, content)
+
         logger.info(
             f"Auto-detected {result.detected_type} file: "
             f"{dest_path} ({len(content)} bytes)"
@@ -102,6 +109,7 @@ async def upload_file_auto(file: UploadFile) -> FileUploadResponse:
             detected=True,
             confidence=result.confidence,
             message=result.message,
+            extracted_text=extracted,
         )
 
     # --- Unknown type → save to general/, extract text ---

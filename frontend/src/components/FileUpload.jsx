@@ -54,6 +54,7 @@ const FileUpload = forwardRef(function FileUpload(
       <input
         ref={fileInputRef}
         type="file"
+        accept=".csv,.xlsx,.xls,.kmz,.kml,.json"
         onChange={handleFileSelect}
         className="hidden"
       />

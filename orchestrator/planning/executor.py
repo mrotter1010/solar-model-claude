@@ -27,6 +27,7 @@ _RUN_TOOLS = frozenset({
     "run_bess",
     "run_buildability",
     "run_optimization",
+    "run_batch",
 })
 
 # Keys to strip from tool results before session storage, keyed by tool name.
@@ -38,6 +39,9 @@ _LARGE_RESULT_KEYS: dict[str, frozenset[str]] = {
     "get_lmp_prices": frozenset({"prices", "timestamps"}),
     "run_optimization": frozenset({"sweep_results", "bess_sweep_results"}),
 }
+
+
+_MAX_BATCH_SUMMARY_ROWS = 5
 
 
 def _summarize_tool_result(tool_name: str, result: dict) -> dict:
@@ -56,9 +60,20 @@ def _summarize_tool_result(tool_name: str, result: dict) -> dict:
         or the original dict unchanged for all other tools.
     """
     keys_to_strip = _LARGE_RESULT_KEYS.get(tool_name)
-    if keys_to_strip is None:
-        return result
-    return {k: v for k, v in result.items() if k not in keys_to_strip}
+    if keys_to_strip is not None:
+        return {k: v for k, v in result.items() if k not in keys_to_strip}
+
+    # Truncate batch summary array to keep session messages compact.
+    if tool_name == "run_batch" and "summary" in result:
+        summary = result["summary"]
+        if isinstance(summary, list) and len(summary) > _MAX_BATCH_SUMMARY_ROWS:
+            truncated = dict(result)
+            truncated["summary"] = summary[:_MAX_BATCH_SUMMARY_ROWS]
+            truncated["summary_truncated"] = True
+            truncated["summary_total"] = len(summary)
+            return truncated
+
+    return result
 
 
 class ExecutionResult:

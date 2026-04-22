@@ -1440,6 +1440,49 @@ TOOL_DEFINITIONS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_batch",
+            "description": (
+                "Run batch processing on a CSV or Excel file containing "
+                "multiple sites. Each row is a separate analysis — supported "
+                "types: buildability, production, optimization, and "
+                "optimization_bess (FTM only; BTM BESS is NOT supported in "
+                "batch v1). Maximum 25 rows per batch. The tool validates "
+                "all rows before running any analyses. If validation fails, "
+                "it returns structured errors so the user can fix their file "
+                "and re-upload. On success, returns a summary with per-row "
+                "status and a download URL for the full results Excel "
+                "workbook. Users can download a blank template via the "
+                "batch template endpoint first. Always confirm with the "
+                "user before starting execution (e.g., 'I see 15 sites: "
+                "5 buildability, 10 optimization. Shall I proceed?')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": (
+                            "Server-side path to the uploaded CSV or Excel "
+                            "batch input file. The user must upload the file "
+                            "first via the upload interface."
+                        ),
+                    },
+                    "confirm": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true to proceed with execution. The "
+                            "planner should always get explicit user "
+                            "confirmation before setting this to true."
+                        ),
+                    },
+                },
+                "required": ["file_path", "confirm"],
+            },
+        },
+    },
 ]
 
 TOOL_ENDPOINTS: dict[str, tuple[str, str]] = {
@@ -1457,4 +1500,5 @@ TOOL_ENDPOINTS: dict[str, tuple[str, str]] = {
     "get_timeseries": ("GET", "/analyses/{run_id}/timeseries"),
     "run_optimization": ("POST", "/analyses/optimize"),
     "get_lmp_prices": ("GET", "/lmp/prices"),
+    "run_batch": ("POST", "/analyses/batch/run"),
 }

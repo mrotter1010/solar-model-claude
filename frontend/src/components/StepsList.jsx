@@ -7,6 +7,32 @@ function formatToolName(name) {
     .replace(/\b\w/g, c => c.toUpperCase());
 }
 
+/**
+ * Format a step error for display. Handles plain strings and
+ * JSON-encoded error objects (e.g. batch validation 422 responses).
+ */
+function formatStepError(error) {
+  if (typeof error !== 'string') return String(error);
+
+  // Try to parse JSON error strings (e.g. from result_summary)
+  try {
+    const parsed = JSON.parse(error);
+    // Batch validation error with structured errors array
+    if (parsed.errors && Array.isArray(parsed.errors)) {
+      return parsed.errors
+        .map(e => `Row ${e.row}, ${e.column}: ${e.message}`)
+        .join('\n');
+    }
+    // Simple {error: "...", tool: "..."} from executor
+    if (parsed.error && typeof parsed.error === 'string') {
+      return parsed.error;
+    }
+  } catch {
+    // Not JSON — return as-is
+  }
+  return error;
+}
+
 export default function StepsList({ steps }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -32,7 +58,9 @@ export default function StepsList({ steps }) {
                 <span className="text-vantyra-text-s">{formatToolName(step.tool)}</span>
               </div>
               {!step.success && step.error && (
-                <p className="ml-6 text-xs text-vantyra-error">{step.error}</p>
+                <p className="ml-6 text-xs text-vantyra-error whitespace-pre-wrap">
+                  {formatStepError(step.error)}
+                </p>
               )}
             </div>
           ))}

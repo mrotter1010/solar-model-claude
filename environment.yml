@@ -20,4 +20,5 @@ dependencies:
     - colorlog>=6.7
     - matplotlib>=3.8
     - reportlab>=4.0
+    - openpyxl>=3.1
     - gridstatus>=0.27

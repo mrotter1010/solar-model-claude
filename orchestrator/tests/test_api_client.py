@@ -258,9 +258,9 @@ class TestToolDefinitions:
         assert path == "/lmp/prices"
 
     def test_tool_count(self):
-        """TOOL_DEFINITIONS has 14 tools and TOOL_ENDPOINTS has 14 entries."""
-        assert len(TOOL_DEFINITIONS) == 14
-        assert len(TOOL_ENDPOINTS) == 14
+        """TOOL_DEFINITIONS has 15 tools and TOOL_ENDPOINTS has 15 entries."""
+        assert len(TOOL_DEFINITIONS) == 15
+        assert len(TOOL_ENDPOINTS) == 15
 
     def test_all_tools_have_endpoints(self):
         """Every tool in TOOL_DEFINITIONS has a matching TOOL_ENDPOINTS entry."""

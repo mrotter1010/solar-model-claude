@@ -13,11 +13,11 @@ import { getInviteCode, setInviteCode } from './utils/inviteCode.js';
 import { getOrCreateUserId } from './utils/userIdentity.js';
 
 function buildFileContext(upload) {
+  if (upload.extracted_text) {
+    return `[System: File uploaded — ${upload.file_type} file '${upload.filename}' available at server path: ${upload.path}. File contents:\n${upload.extracted_text}]`;
+  }
   if (upload.file_type !== 'unknown') {
     return `[System: File uploaded — ${upload.file_type} file '${upload.filename}' available at server path: ${upload.path}]`;
-  }
-  if (upload.extracted_text) {
-    return `[System: File uploaded — '${upload.filename}' available at server path: ${upload.path}. File contents:\n${upload.extracted_text}]`;
   }
   return `[System: File uploaded — '${upload.filename}' available at server path: ${upload.path}. Binary file — contents not readable.]`;
 }

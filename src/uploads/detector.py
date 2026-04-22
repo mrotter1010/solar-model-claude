@@ -34,6 +34,11 @@ _RATE_REQUIRED_KEYS = {
 _MIN_LOAD_ROWS = 8_760
 _MAX_LOAD_ROWS = 8_784
 
+# Batch input detection: must have analysis_type + lat + lon columns
+_BATCH_REQUIRED_COLUMN = "analysis_type"
+_BATCH_LAT_COLUMNS = frozenset({"latitude", "lat"})
+_BATCH_LON_COLUMNS = frozenset({"longitude", "lon"})
+
 
 def detect_file_type(filename: str, content: bytes) -> DetectionResult:
     """Detect the type of an uploaded file from its name and content.
@@ -59,12 +64,15 @@ def detect_file_type(filename: str, content: bytes) -> DetectionResult:
             message=f"Detected as KMZ/KML boundary file: '{filename}'",
         )
 
-    # 2. CSV — check if it looks like an 8760 hourly load profile
+    # 2. CSV — check if it looks like an 8760 hourly load profile or batch input
     if lower.endswith(".csv"):
         result = _check_load_profile_csv(filename, content)
         if result is not None:
             return result
-        # Not a load profile shape — fall through to unknown
+        result = _check_batch_input_csv(filename, content)
+        if result is not None:
+            return result
+        # Not a load profile or batch input — fall through to unknown
         return DetectionResult(
             detected_type="unknown",
             confidence="low",
@@ -85,7 +93,18 @@ def detect_file_type(filename: str, content: bytes) -> DetectionResult:
             message=f"JSON file '{filename}' does not match rate schedule structure",
         )
 
-    # 4. Everything else
+    # 4. Excel — check if it looks like a batch input file
+    if lower.endswith(".xlsx") or lower.endswith(".xls"):
+        result = _check_batch_input_excel(filename, content)
+        if result is not None:
+            return result
+        return DetectionResult(
+            detected_type="unknown",
+            confidence="low",
+            message=f"Excel file '{filename}' does not match batch input format",
+        )
+
+    # 5. Everything else
     return DetectionResult(
         detected_type="unknown",
         confidence="low",
@@ -125,6 +144,71 @@ def _check_load_profile_csv(
         )
 
     return None
+
+
+def _check_batch_input_headers(
+    filename: str, headers: list[str]
+) -> DetectionResult | None:
+    """Return a DetectionResult if headers match batch input template columns.
+
+    Requires ``analysis_type`` AND at least one latitude column AND at least
+    one longitude column.
+    """
+    lower_headers = {h.strip().lower() for h in headers}
+
+    if _BATCH_REQUIRED_COLUMN not in lower_headers:
+        return None
+    if not lower_headers & _BATCH_LAT_COLUMNS:
+        return None
+    if not lower_headers & _BATCH_LON_COLUMNS:
+        return None
+
+    return DetectionResult(
+        detected_type="batch_input",
+        confidence="high",
+        message=f"Batch input file detected: '{filename}'",
+    )
+
+
+def _check_batch_input_csv(
+    filename: str, content: bytes
+) -> DetectionResult | None:
+    """Return a DetectionResult if CSV has batch input template columns."""
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+    try:
+        reader = csv.reader(io.StringIO(text))
+        headers = next(reader, None)
+    except csv.Error:
+        return None
+
+    if not headers:
+        return None
+
+    return _check_batch_input_headers(filename, headers)
+
+
+def _check_batch_input_excel(
+    filename: str, content: bytes
+) -> DetectionResult | None:
+    """Return a DetectionResult if Excel file has batch input template columns."""
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
+        ws = wb.active
+        headers = [str(cell.value or "") for cell in next(ws.iter_rows(max_row=1))]
+        wb.close()
+    except Exception:
+        return None
+
+    return _check_batch_input_headers(filename, headers)
 
 
 def _check_rate_schedule_json(
