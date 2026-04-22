@@ -35,6 +35,7 @@ Milestone-based development log for solar-model-claude. Moved from README.md dur
 | M23 | Beta Deployment | Done | Environment config, invite code auth, access gate, Nginx reverse proxy, Docker production config, deploy script |
 | M24 | Chat Persistence | Done | Anonymous user identity, conversation + message DB persistence (TimescaleDB), conversation CRUD endpoints, sidebar UI, LLM title generation, session_id→conversation_id rename. Bug fixes: tool-chain message filtering, LMP result summarization, synthesis instruction persistence. 1,983 tests. |
 | M25 | Solar Layout Optimization | Done | GCR × DC/AC ratio sweep engine, three optimization modes (production/LCOE/NPV), solar+BESS joint optimization, capacity-from-acreage sizing, economics engine, PDF report with heatmap + comparison charts, KML centroid auto-extraction, orchestrator tool with auto-chaining. 2,200 tests. |
+| M26 | Batch Processing | Done | CSV/Excel batch upload (up to 25 sites), 4 analysis types (buildability/production/optimization/optimization_bess), 39-column validation engine, fail-forward execution, formatted Excel workbook output with per-analysis-type tabs, orchestrator integration, frontend auto-detection. 2,398 tests. |
 
 ## Roadmap
 
@@ -43,6 +44,38 @@ Milestone-based development log for solar-model-claude. Moved from README.md dur
 | M10 | Solcast Bias Correction | Bias correction for Solcast TMY data, analogous to M9 for NSRDB. Blocked on Solcast account access. |
 | M13 | Multiyear P50/P75/P90 | Monte Carlo exceedance probabilities with interannual variability and epistemic uncertainty factors |
 | M14d | Detailed Degradation | Rainflow counting, calendar aging, C-rate effects |
+
+## M26: Batch Processing
+
+**Commit:** `bacb7b1`
+
+### Core Features
+
+- **CSV/Excel batch upload** — Upload a CSV or Excel file with up to 25 sites per batch. Supports 4 analysis types: `buildability`, `production`, `optimization`, and `optimization_bess` (FTM only; BTM deferred).
+- **39-column validation engine** — Schema validation with CEC equipment lookup (module/inverter name matching against ~20k modules and ~2k inverters), field type/range checks, and 25-row limit enforcement. All rows validated upfront before execution begins.
+- **Sequential execution with fail-forward error handling** — Rows execute sequentially. If a row fails, the error is captured and execution continues to the next row. Partial results are always returned.
+- **Formatted Excel workbook output** — Results written to an openpyxl workbook with per-analysis-type tabs (one sheet per analysis type), Input Echo tab, and Errors tab. Frozen headers, auto-filter, and number formatting for immediate comparison.
+
+### API & Orchestrator
+
+- **REST endpoints** — `POST /analyses/batch/run` (JSON `file_path` pattern matching existing KMZ upload flow), `GET` template download, `GET` results download.
+- **Orchestrator tool** — `run_batch` tool with batch routing rule. File content preview enables informed plan approval by GPT-5.
+- **Upload auto-detection** — CSV files with `analysis_type` + `lat` + `lon` columns are automatically classified as `batch_input` with text extraction for GPT-5 preview.
+
+### Frontend
+
+- **Batch upload flow** — Upload auto-detection for batch CSV files. Template download link in header. Batch results card with structured validation error display.
+
+### Bug Fixes (Integration Testing)
+
+- **Optimization albedo** — Missing weather fetch in optimization path caused albedo to default to zero. Added weather data retrieval before optimization runs.
+- **Capacity factor double-conversion** — PySAM returns capacity factor as a percentage (e.g., 25.4); the pipeline was dividing by 100 again, producing values like 0.254%. Fixed to use PySAM's value directly where appropriate.
+- **NaN-to-string defaults** — Pandas NaN values in optional columns caused type errors during Excel formatting. Added string defaults for missing values.
+
+### Stats
+
+- **Tests:** 2,398 (189 new batch tests)
+- **Diff:** 6,960 insertions, 31 files changed
 
 ## M25: Solar Layout Optimization
 

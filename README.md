@@ -45,6 +45,8 @@ Four Docker services behind Cloudflare SSL:
 
 **Layout Optimization** — Automated GCR × DC/AC ratio sweep to find optimal system design. Three optimization modes: max production, min LCOE, max NPV. Solar+BESS joint optimization with BTM (rate-based) and FTM (LMP-based) dispatch. Capacity-from-acreage sizing, ITC-aware economics, PDF report with heatmap and configuration comparison charts.
 
+**Batch Processing** — Upload a CSV or Excel file with up to 25 sites and run buildability, production, optimization, or solar+BESS (FTM) analyses across all rows in a single request. Validates all rows upfront, executes with fail-forward error handling, and returns a formatted Excel workbook with per-analysis-type tabs for immediate comparison. Downloadable input template with field descriptions and example rows.
+
 ## Local Development
 
 ### Prerequisites
@@ -85,7 +87,7 @@ Production secrets live in `.env.production` on the VPS (never committed). See `
 pytest tests/
 ```
 
-2,200 tests covering config validation, climate clients, PySAM simulation, ML corrections, rate engine, BESS dispatch, buildability analysis, layout optimization, REST API endpoints, LLM orchestrator, and end-to-end integration.
+2,400 tests covering config validation, climate clients, PySAM simulation, ML corrections, rate engine, BESS dispatch, buildability analysis, layout optimization, batch processing, REST API endpoints, LLM orchestrator, and end-to-end integration.
 
 ## Tech Stack
 
@@ -94,7 +96,7 @@ pytest tests/
 | Simulation | NREL PySAM, CEC Performance Model |
 | Climate | NSRDB v4.0.0, Solcast TMY, Open-Meteo ERA5 |
 | ML | scikit-learn (Gradient Boosting, Random Forest) |
-| Backend | FastAPI, SQLAlchemy, Alembic, PuLP/CBC |
+| Backend | FastAPI, SQLAlchemy, Alembic, PuLP/CBC, openpyxl |
 | LLM | OpenAI GPT-5 (function calling) |
 | Frontend | React 19, Vite, Tailwind CSS |
 | Database | PostgreSQL 16 + TimescaleDB |
