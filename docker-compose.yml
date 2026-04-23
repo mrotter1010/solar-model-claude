@@ -12,6 +12,8 @@ services:
       - NSRDB_API_KEY=${NSRDB_API_KEY:-}
       - NSRDB_API_EMAIL=${NSRDB_API_EMAIL:-}
       - UPLOAD_DIR=/app/uploads
+    networks:
+      - vantyra-net
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -31,6 +33,8 @@ services:
       - REQUEST_TIMEOUT=120
       - SESSION_TTL_MINUTES=60
       - MAX_PLAN_STEPS=10
+    networks:
+      - vantyra-net
     depends_on:
       - api
       - timescaledb
@@ -43,6 +47,8 @@ services:
       - POSTGRES_USER=solar
       - POSTGRES_PASSWORD=solar
       - POSTGRES_DB=solar_model
+    networks:
+      - vantyra-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U solar -d solar_model"]
       interval: 5s
@@ -51,3 +57,7 @@ services:
 
 volumes:
   pgdata:
+
+networks:
+  vantyra-net:
+    external: true
