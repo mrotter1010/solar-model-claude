@@ -200,15 +200,15 @@ Legacy clients are archived in `src/climate/legacy/`.
 ### NSRDB API 404 errors
 
 The endpoint was updated from PSM v3.2.2 (deprecated) to GOES Aggregated v4.0.0 on 2026-03-07. If NSRDB starts returning 404 again:
-1. Check if the endpoint has been deprecated: https://developer.nrel.gov/docs/solar/nsrdb/
-2. Verify credentials are valid: https://developer.nrel.gov/api/nsrdb/
-3. Old PSM v3.2.2 URL was: `https://developer.nrel.gov/api/nsrdb/v2/solar/psm3-2-2-download.csv`
+1. Check if the endpoint has been deprecated: https://developer.nlr.gov/docs/solar/nsrdb/
+2. Verify credentials are valid: https://developer.nlr.gov/api/nsrdb/
+3. Old PSM v3.2.2 URL was: `https://developer.nlr.gov/api/nsrdb/v2/solar/psm3-2-2-download.csv`
 
 Credentials are hardcoded in `src/climate/config.py` and `src/climate/nsrdb_client.py`. Override with env vars `NSRDB_API_KEY` and `NSRDB_API_EMAIL`.
 
 ### NSRDB API rate limit / 403 errors
 
-Get a free API key at [https://developer.nrel.gov/signup/](https://developer.nrel.gov/signup/) and set `NSRDB_API_KEY`.
+Get a free API key at [https://developer.nlr.gov/signup/](https://developer.nlr.gov/signup/) and set `NSRDB_API_KEY`.
 
 ### Cache not being used
 

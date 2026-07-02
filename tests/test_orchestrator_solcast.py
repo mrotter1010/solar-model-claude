@@ -226,7 +226,8 @@ class TestSnowDepthWarning:
         """User types 'y' to proceed without snow losses."""
         site = _make_site(resource_file_path=MINIMAL_FIXTURE)
 
-        with patch("builtins.input", return_value="y") as mock_input:
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="y") as mock_input:
             results = orchestrator.fetch_climate_data([site])
 
         # Should have prompted the user
@@ -246,7 +247,8 @@ class TestSnowDepthWarning:
         """User types 'n' to abort when snow depth is missing."""
         site = _make_site(resource_file_path=MINIMAL_FIXTURE)
 
-        with patch("builtins.input", return_value="n"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="n"):
             with pytest.raises(ClimateDataError, match="User aborted"):
                 orchestrator.fetch_climate_data([site])
 
@@ -257,7 +259,8 @@ class TestSnowDepthWarning:
         """Full Solcast file with Snow Depth should NOT prompt user."""
         site = _make_site(resource_file_path=FULL_FIXTURE)
 
-        with patch("builtins.input") as mock_input:
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input") as mock_input:
             results = orchestrator.fetch_climate_data([site])
 
         mock_input.assert_not_called()

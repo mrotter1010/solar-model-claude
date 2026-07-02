@@ -189,7 +189,8 @@ class TestApiFailureHandling:
             SAMPLE_NSRDB_CSV,
         ]
 
-        with patch("builtins.input", return_value="1"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="1"):
             df, metadata = orchestrator.handle_api_failure(
                 33.45, -111.98, ClimateDataError("API error")
             )
@@ -203,7 +204,8 @@ class TestApiFailureHandling:
         """All 3 retries fail → raises ClimateDataError."""
         mock_client.fetch_weather_data.side_effect = ClimateDataError("API error")
 
-        with patch("builtins.input", return_value="1"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="1"):
             with pytest.raises(ClimateDataError, match="after 3 retries"):
                 orchestrator.handle_api_failure(
                     33.45, -111.98, ClimateDataError("API error")
@@ -217,7 +219,8 @@ class TestApiFailureHandling:
     ) -> None:
         """User chooses abort → raises ClimateDataError."""
         # No nearest cache available, so abort is option "2"
-        with patch("builtins.input", return_value="2"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="2"):
             with pytest.raises(ClimateDataError, match="aborted by user"):
                 orchestrator.handle_api_failure(
                     33.45, -111.98, ClimateDataError("API error")
@@ -238,7 +241,8 @@ class TestApiFailureHandling:
         formatter = WeatherFormatter()
         orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
 
-        with patch("builtins.input", return_value="3"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="3"):
             with pytest.raises(ClimateDataError, match="aborted by user"):
                 orch.handle_api_failure(
                     33.45, -111.98, ClimateDataError("API error")
@@ -264,7 +268,8 @@ class TestNearestCacheFallback:
         orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
 
         # User picks option 2 (use nearest cache)
-        with patch("builtins.input", return_value="2"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="2"):
             df, metadata = orch.handle_api_failure(
                 33.45, -111.98, ClimateDataError("API error")
             )
@@ -288,7 +293,8 @@ class TestNearestCacheFallback:
         orch = ClimateOrchestrator(mock_client, cache_manager, formatter)
 
         # When no nearby cache, option "2" is abort (not "use nearest")
-        with patch("builtins.input", return_value="2"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="2"):
             with pytest.raises(ClimateDataError, match="aborted by user"):
                 orch.handle_api_failure(
                     33.45, -111.98, ClimateDataError("API error")
@@ -460,7 +466,8 @@ class TestApiFailureInFetchClimateData:
         single_site = [test_sites[0]]  # Phoenix (33.45, -111.98)
 
         # User selects "use nearest cache" (option 2) when prompted
-        with patch("builtins.input", return_value="2"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="2"):
             results = orch.fetch_climate_data(single_site)
 
         # Should have recovered using the nearby cache
@@ -485,7 +492,8 @@ class TestApiFailureInFetchClimateData:
         single_site = [test_sites[0]]
 
         # User selects abort (option 2 when no nearby cache)
-        with patch("builtins.input", return_value="2"):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="2"):
             with pytest.raises(ClimateDataError, match="aborted by user"):
                 orch.fetch_climate_data(single_site)
 

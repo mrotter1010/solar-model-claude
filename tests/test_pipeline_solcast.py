@@ -126,8 +126,10 @@ class TestSolcastFullPipeline:
     @patch("src.pipeline.CacheManager")
     @patch("src.pipeline.fetch_era5_land_data")
     @patch("builtins.input", return_value="y")
+    @patch("sys.stdin.isatty", return_value=True)
     def test_solcast_pipeline_produces_outputs(
         self,
+        mock_isatty: MagicMock,
         mock_input: MagicMock,
         mock_era5_func: MagicMock,
         mock_cache_cls: MagicMock,

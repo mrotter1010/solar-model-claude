@@ -7,8 +7,8 @@ from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-NSRDB_PSM_URL = "https://developer.nrel.gov/api/nsrdb/v2/solar/nsrdb-GOES-aggregated-v4-0-0-download.csv"
-NSRDB_TMY_URL = "https://developer.nrel.gov/api/nsrdb/v2/solar/nsrdb-GOES-tmy-v4-0-0-download.csv"
+NSRDB_PSM_URL = "https://developer.nlr.gov/api/nsrdb/v2/solar/nsrdb-GOES-aggregated-v4-0-0-download.csv"
+NSRDB_TMY_URL = "https://developer.nlr.gov/api/nsrdb/v2/solar/nsrdb-GOES-tmy-v4-0-0-download.csv"
 
 WEATHER_ATTRIBUTES = [
     "ghi",
@@ -25,11 +25,11 @@ class NSRDBClient:
 
     Updated 2026-03-07 from PSM v3.2.2 (deprecated, returns 404) to GOES
     Aggregated v4.0.0. Old endpoint URL was:
-    https://developer.nrel.gov/api/nsrdb/v2/solar/psm3-2-2-download.csv
+    https://developer.nlr.gov/api/nsrdb/v2/solar/psm3-2-2-download.csv
 
     If NSRDB starts returning 404 again, check:
-    1. Has the endpoint been deprecated? See https://developer.nrel.gov/docs/solar/nsrdb/
-    2. Are credentials valid? Test at https://developer.nrel.gov/api/nsrdb/
+    1. Has the endpoint been deprecated? See https://developer.nlr.gov/docs/solar/nsrdb/
+    2. Are credentials valid? Test at https://developer.nlr.gov/api/nsrdb/
 
     Credentials default to hardcoded values here and in ClimateConfig. Override
     with env vars NSRDB_API_KEY and NSRDB_API_EMAIL.

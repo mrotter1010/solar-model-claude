@@ -1,5 +1,6 @@
 """Orchestrator for coordinating climate data retrieval across sites."""
 
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -114,21 +115,28 @@ class ClimateOrchestrator:
                 # Injecting ERA5 snow data would require rewriting the commercial
                 # resource file. We pass Solcast files directly to PySAM unmodified.
                 if not solcast_result["has_snow_depth"]:
-                    prompt = (
-                        f"\nWARNING: Solcast file for ({lat}, {lon}) does not "
-                        f"include a Snow Depth column. Snow losses will NOT be "
-                        f"modeled for this location.\n"
-                        f"Proceed without snow losses? (y/n): "
-                    )
-                    choice = input(prompt).strip().lower()
-                    if choice != "y":
-                        raise ClimateDataError(
-                            f"User aborted: Solcast file for ({lat}, {lon}) "
-                            f"missing Snow Depth column",
-                            context={
-                                "location": (lat, lon),
-                                "file": str(solcast_file),
-                            },
+                    if sys.stdin.isatty():
+                        prompt = (
+                            f"\nWARNING: Solcast file for ({lat}, {lon}) does not "
+                            f"include a Snow Depth column. Snow losses will NOT be "
+                            f"modeled for this location.\n"
+                            f"Proceed without snow losses? (y/n): "
+                        )
+                        choice = input(prompt).strip().lower()
+                        if choice != "y":
+                            raise ClimateDataError(
+                                f"User aborted: Solcast file for ({lat}, {lon}) "
+                                f"missing Snow Depth column",
+                                context={
+                                    "location": (lat, lon),
+                                    "file": str(solcast_file),
+                                },
+                            )
+                    else:
+                        logger.warning(
+                            f"Solcast file for ({lat}, {lon}) missing Snow Depth "
+                            f"column — proceeding without snow losses "
+                            f"(non-interactive context)"
                         )
 
                 results[(lat, lon)] = {
@@ -221,27 +229,50 @@ class ClimateOrchestrator:
         year: int | str = "tmy",
         max_cache_distance_km: float = 50.0,
     ) -> tuple[pd.DataFrame, dict]:
-        """Handle an API failure with interactive user prompts.
+        """Handle an API failure with interactive user prompts or automatic fallback.
 
-        Offers retry, nearest cache fallback (if available), or abort.
+        In interactive (TTY) mode: offers retry, nearest cache fallback, or abort.
+        In non-interactive mode (API/Docker): auto-selects nearest cache if
+        available within max_cache_distance_km, otherwise raises ClimateDataError.
 
         Args:
             lat: Latitude of the failed location.
             lon: Longitude of the failed location.
             error: The original API error.
+            year: Weather data year.
             max_cache_distance_km: Maximum distance for nearest-cache fallback.
 
         Returns:
             Tuple of (formatted DataFrame, metadata dict) for bias correction.
 
         Raises:
-            ClimateDataError: If user chooses to abort.
+            ClimateDataError: If user chooses to abort or no fallback is available.
         """
         logger.error(f"API failure for ({lat}, {lon}): {error}")
 
         nearest = self.cache_manager.find_nearest_cache(
             lat, lon, year=year, max_distance_km=max_cache_distance_km
         )
+
+        if not sys.stdin.isatty():
+            # Non-interactive context (FastAPI, Docker, CI)
+            if nearest is not None:
+                nearest_path, nearest_dist = nearest
+                logger.warning(
+                    f"NSRDB API unavailable for ({lat}, {lon}), "
+                    f"auto-selecting nearest cache: {nearest_path.name} "
+                    f"({nearest_dist:.1f} km away) (non-interactive context)"
+                )
+                raw_csv = nearest_path.read_text()
+                df, metadata = self.formatter.format_for_pysam(
+                    raw_csv, lat, lon, snow_depth_cm=None
+                )
+                return df, metadata
+            raise ClimateDataError(
+                f"NSRDB API unavailable and no cache within "
+                f"{max_cache_distance_km} km for ({lat}, {lon})",
+                context={"location": (lat, lon), "original_error": str(error)},
+            )
 
         for attempt in range(MAX_RETRIES):
             # Build prompt options
