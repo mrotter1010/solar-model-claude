@@ -15,8 +15,8 @@ services:
     networks:
       - vantyra-net
     dns:
-      - 185.12.64.1
-      - 185.12.64.2
+      - 8.8.8.8
+      - 8.8.4.4
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -39,8 +39,8 @@ services:
     networks:
       - vantyra-net
     dns:
-      - 185.12.64.1
-      - 185.12.64.2
+      - 8.8.8.8
+      - 8.8.4.4
     depends_on:
       - api
       - timescaledb
